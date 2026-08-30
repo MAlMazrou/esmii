@@ -3,6 +3,7 @@ Description=Poll for a verified Esmii main production candidate
 
 [Timer]
 OnBootSec=120s
+OnActiveSec=120s
 OnUnitActiveSec=120s
 RandomizedDelaySec=10s
 Persistent=true
