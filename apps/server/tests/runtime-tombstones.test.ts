@@ -4,7 +4,7 @@ import type { DatabaseClient } from "@esmii/database";
 
 import { createRuntimeTombstoneOrchestrator } from "../src/services/runtime-tombstones.js";
 
-function capturedDatabase(environment: "development" | "test" | "staging") {
+function capturedDatabase(environment: "development" | "test" | "staging" | "production") {
   const query = vi
     .fn()
     .mockResolvedValueOnce({
@@ -42,5 +42,16 @@ describe("runtime tombstone adapter selection", () => {
         mode: "capture",
       }),
     ).rejects.toThrow("external tombstone capture must be provisioned");
+  });
+
+  it("allows production capture only for the explicit initial public shell", async () => {
+    await expect(
+      createRuntimeTombstoneOrchestrator({
+        allowProductionCapture: true,
+        database: capturedDatabase("production"),
+        environment: "production",
+        mode: "capture",
+      }),
+    ).resolves.toBeDefined();
   });
 });

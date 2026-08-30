@@ -34,6 +34,7 @@ export interface HttpServerConfig {
   authentication: AuthenticationConfig;
   databaseUrl: string;
   host: string;
+  initialPublicShellMode: boolean;
   operationsHealthToken: string;
   port: number;
   securityTombstoneMode: "capture" | "external";
@@ -496,6 +497,40 @@ export async function loadHttpServerConfig(
     );
   }
 
+  const initialPublicShellValue = environment.INITIAL_PUBLIC_SHELL_MODE;
+  if (
+    initialPublicShellValue !== undefined &&
+    initialPublicShellValue !== "true" &&
+    initialPublicShellValue !== "false"
+  ) {
+    throw new ConfigurationError("INITIAL_PUBLIC_SHELL_MODE", "expected true or false");
+  }
+  const initialPublicShellMode = initialPublicShellValue === "true";
+  const providerConfigured =
+    providers.google !== undefined ||
+    providers.microsoft !== undefined ||
+    providers.apple !== undefined ||
+    providers.mockProviders.length > 0;
+  if (
+    initialPublicShellMode &&
+    (appEnvironment !== "production" || securityTombstoneMode !== "capture" || providerConfigured)
+  ) {
+    throw new ConfigurationError(
+      "INITIAL_PUBLIC_SHELL_MODE",
+      "requires production capture mode with no authentication provider",
+    );
+  }
+  if (
+    appEnvironment === "production" &&
+    securityTombstoneMode === "capture" &&
+    !initialPublicShellMode
+  ) {
+    throw new ConfigurationError(
+      "SECURITY_TOMBSTONE_MODE",
+      "production capture requires explicit initial public shell mode",
+    );
+  }
+
   const stagingTesterEmails = parseStagingTesterEmails(stagingTesterEmailValue);
   if (appEnvironment === "staging" && stagingTesterEmails.size === 0) {
     throw new ConfigurationError(
@@ -528,6 +563,7 @@ export async function loadHttpServerConfig(
     },
     databaseUrl,
     host,
+    initialPublicShellMode,
     operationsHealthToken,
     port: parseInteger("PORT", environment.PORT, 3000, 1, 65_535),
     securityTombstoneMode,

@@ -103,6 +103,33 @@ describe("server configuration", () => {
     ).rejects.toThrow("mock providers are local/test only");
   });
 
+  it("requires an explicit provider-free initial shell for production capture", async () => {
+    const productionEnvironment = {
+      ...validEnvironment,
+      APP_ENV: "production",
+      APP_PUBLIC_ORIGIN: "https://esmii.app",
+    } as const;
+
+    await expect(loadHttpServerConfig(productionEnvironment)).rejects.toThrow(
+      "production capture requires explicit initial public shell mode",
+    );
+
+    const configuration = await loadHttpServerConfig({
+      ...productionEnvironment,
+      INITIAL_PUBLIC_SHELL_MODE: "true",
+    });
+    expect(configuration.initialPublicShellMode).toBe(true);
+
+    await expect(
+      loadHttpServerConfig({
+        ...productionEnvironment,
+        AUTH_GOOGLE_CLIENT_ID: "synthetic-production-client-id",
+        AUTH_GOOGLE_CLIENT_SECRET: "synthetic-production-client-secret",
+        INITIAL_PUBLIC_SHELL_MODE: "true",
+      }),
+    ).rejects.toThrow("requires production capture mode with no authentication provider");
+  });
+
   it("does not load worker-only derivation material in API configuration", async () => {
     const sentinel = "worker-only-key-sentinel";
     const configuration = await loadHttpServerConfig({

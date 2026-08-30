@@ -49,6 +49,8 @@ describe("production pull policy", () => {
     expect(renderer).toContain("SMTP_URL_FILE");
     expect(renderer).toContain("AUTH_GOOGLE_CLIENT_");
     expect(renderer).toContain("production_auth_google_client_");
+    expect(renderer).toContain("INITIAL_PUBLIC_SHELL_MODE");
+    expect(renderer).toContain("SECURITY_TOMBSTONE_JOURNAL_FILE");
     expect(renderer).toContain("External SMTP remains disabled");
   });
 

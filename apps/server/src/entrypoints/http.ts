@@ -48,6 +48,7 @@ async function main(): Promise<void> {
     });
     const authentication = new BetterAuthAuthenticationSeam(auth);
     const tombstones = await createRuntimeTombstoneOrchestrator({
+      allowProductionCapture: configuration.initialPublicShellMode,
       database,
       environment: configuration.appEnvironment,
       mode: configuration.securityTombstoneMode,

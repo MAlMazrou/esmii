@@ -189,6 +189,9 @@ function runRuntimeFixture({ environmentName, image, kind, port }) {
     if (environmentName === "staging") {
       arguments_.push("--env", "AUTH_STAGING_TESTER_EMAILS=synthetic.tester@example.invalid");
     }
+    if (environmentName === "production") {
+      arguments_.push("--env", "INITIAL_PUBLIC_SHELL_MODE=true");
+    }
   } else {
     arguments_.push("--env", "HOSTNAME=127.0.0.1");
   }
