@@ -6,7 +6,7 @@ import { PostgresSecurityTombstoneOrchestrator } from "./tombstone-orchestrator.
 
 /**
  * Development, test, and staging use the isolated database-backed capture adapter.
- * Production remains fail-closed until its external durable journal is provisioned.
+ * Production remains fail-closed unless the explicit initial-public-shell exception is active.
  */
 export async function createRuntimeTombstoneOrchestrator(input: {
   allowProductionCapture?: boolean;

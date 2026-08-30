@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import type { AppEnvironment } from "@esmii/config";
 import { loadMigrationConfig } from "@esmii/config/server";
 import { createDatabaseClient, runMigrations } from "@esmii/database";
 import { PgBoss, type ConstructorOptions } from "pg-boss";
@@ -71,7 +72,7 @@ async function migratePgBoss(connectionString: string): Promise<void> {
 
 async function initializeCapturedTombstoneState(
   connectionString: string,
-  environment: "development" | "test" | "staging",
+  environment: AppEnvironment,
 ): Promise<void> {
   const database = createDatabaseClient({
     applicationName: "esmii-captured-tombstone-state",
@@ -105,9 +106,7 @@ async function main(): Promise<void> {
       ? {}
       : { migrationsDirectory: configuration.migrationsDirectory }),
   });
-  if (configuration.appEnvironment !== "production") {
-    await initializeCapturedTombstoneState(configuration.databaseUrl, configuration.appEnvironment);
-  }
+  await initializeCapturedTombstoneState(configuration.databaseUrl, configuration.appEnvironment);
   await migratePgBoss(configuration.databaseUrl);
   process.stdout.write("Database migrations completed.\n");
 }

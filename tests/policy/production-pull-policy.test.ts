@@ -38,6 +38,16 @@ describe("production pull policy", () => {
     expect(production).toContain("/run/lock/esmii/host-pull.lock");
   });
 
+  it("captures bounded API diagnostics before a failed activation rolls back", async () => {
+    const script = await readFile("infra/production-pull/esmii-production-pull", "utf8");
+    const diagnostic = "compose logs --no-color --tail 120 production-api";
+
+    expect(script).toContain(diagnostic);
+    expect(script.indexOf("diagnose_activation_failure\n  rollback")).toBeGreaterThan(
+      script.indexOf(diagnostic),
+    );
+  });
+
   it("keeps real outbound mail and Google OAuth disabled in the initial public runtime", async () => {
     const [capture, renderer] = await Promise.all([
       readFile("infra/production-pull/compose.production.capture.yaml", "utf8"),
@@ -52,6 +62,15 @@ describe("production pull policy", () => {
     expect(renderer).toContain("INITIAL_PUBLIC_SHELL_MODE");
     expect(renderer).toContain("SECURITY_TOMBSTONE_JOURNAL_FILE");
     expect(renderer).toContain("External SMTP remains disabled");
+  });
+
+  it("initializes the capture recovery row needed by the explicit production shell", async () => {
+    const migration = await readFile("apps/server/src/entrypoints/migrate.ts", "utf8");
+
+    expect(migration).toContain(
+      "await initializeCapturedTombstoneState(configuration.databaseUrl, configuration.appEnvironment);",
+    );
+    expect(migration).not.toContain('configuration.appEnvironment !== "production"');
   });
 
   it("keeps canonical production secrets root-only and mounts isolated runtime copies", async () => {
