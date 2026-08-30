@@ -201,7 +201,7 @@ jobs:
       - name: Run dual-runtime fixtures against the exact image identities
         run: corepack pnpm image:runtime-fixtures
       - name: Scan the web image for high and critical vulnerabilities
-        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: esmii/web:prompt02
           format: table
@@ -210,7 +210,7 @@ jobs:
           severity: HIGH,CRITICAL
           ignore-unfixed: true
       - name: Scan the server image for high and critical vulnerabilities
-        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: esmii/server:prompt02
           format: table
