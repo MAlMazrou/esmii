@@ -62,6 +62,8 @@ export interface WorkerConfig {
   actionLinkKeyring: ActionLinkKeyring;
   appEnvironment: AppEnvironment;
   databaseUrl: string;
+  mailFromAddress: string;
+  messageIdDomain: string;
   heartbeatIntervalMs: number;
   jobConcurrency: number;
   pgBossCreateSchema: false;
@@ -539,10 +541,14 @@ export async function loadWorkerConfig(
     readRuntimeValue("SMTP_URL", environment, effectiveReader),
     readRuntimeValue("ACTION_LINK_DERIVATION_KEYRING", environment, effectiveReader),
   ]);
+  const publicOrigin = readPublicOrigin(environment, appEnvironment);
+  const publicHostname = new URL(publicOrigin).hostname;
   return {
     actionLinkKeyring: parseActionLinkKeyring(serializedKeyring, appEnvironment),
     appEnvironment,
     databaseUrl,
+    mailFromAddress: `noreply@${publicHostname}`,
+    messageIdDomain: `messages.${publicHostname}`,
     heartbeatIntervalMs: parseInteger(
       "WORKER_HEARTBEAT_INTERVAL_MS",
       environment.WORKER_HEARTBEAT_INTERVAL_MS,
@@ -553,7 +559,7 @@ export async function loadWorkerConfig(
     jobConcurrency: parseInteger("JOB_CONCURRENCY", environment.JOB_CONCURRENCY, 1, 1, 32),
     pgBossCreateSchema: parseFalse("PGBOSS_CREATE_SCHEMA", environment.PGBOSS_CREATE_SCHEMA),
     pgBossMigrate: parseFalse("PGBOSS_MIGRATE", environment.PGBOSS_MIGRATE),
-    publicOrigin: readPublicOrigin(environment, appEnvironment),
+    publicOrigin,
     smtpUrl: validateUrl("SMTP_URL", smtpUrl, new Set(["smtp:", "smtps:"])),
     valkeyUrl,
   };

@@ -218,12 +218,23 @@ services:
         max-file: "3"
 
   development-valkey:
-    image: valkey/valkey:9.1.1-alpine
+    image: valkey/valkey:9.1.1-alpine@sha256:de31910896150d5e754a07d57d227cfdde4e258ddd0d1aa4607f2d2f95843715
     restart: unless-stopped
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        cp /run/secrets/valkey_users_acl /tmp/valkey-users.acl
+        chown valkey:valkey /tmp/valkey-users.acl
+        chmod 0600 /tmp/valkey-users.acl
+        exec /usr/local/bin/docker-entrypoint.sh "$$@"
+      - esmii-valkey-entrypoint
     command: ["valkey-server", "/etc/valkey/valkey.conf"]
     secrets:
-      - development_valkey_users_acl
-      - development_valkey_health_password
+      - source: development_valkey_users_acl
+        target: valkey_users_acl
+      - source: development_valkey_health_password
+        target: valkey_health_password
     volumes:
       - ./valkey/development.conf:/etc/valkey/valkey.conf:ro
     networks:
@@ -231,7 +242,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - 'VALKEYCLI_AUTH="$$(cat /run/secrets/development_valkey_health_password)" valkey-cli --user health ping | grep -q PONG'
+        - 'VALKEYCLI_AUTH="$$(cat /run/secrets/valkey_health_password)" valkey-cli --user health ping | grep -q PONG'
       interval: 5s
       timeout: 3s
       start_period: 5s

@@ -65,8 +65,15 @@ export function actionTokenHashMatches(token: string, expectedHash: string): boo
   return timingSafeEqual(actual, Buffer.from(expectedHash, "hex"));
 }
 
-export function stableMessageId(eventId: string, environment: AppEnvironment): string {
+export function stableMessageId(
+  eventId: string,
+  environment: AppEnvironment,
+  messageIdDomain = "messages.invalid",
+): string {
   const safeId = eventId.replaceAll(/[^A-Za-z0-9._-]/g, "-");
   if (safeId.length < 1 || safeId.length > 160) throw new TypeError("eventId is invalid");
-  return `<${safeId}.${environment}@messages.esmii.app>`;
+  if (!/^[A-Za-z0-9.-]{1,253}$/u.test(messageIdDomain)) {
+    throw new TypeError("messageIdDomain is invalid");
+  }
+  return `<${safeId}.${environment}@${messageIdDomain}>`;
 }

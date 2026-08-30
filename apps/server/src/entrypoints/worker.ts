@@ -29,7 +29,7 @@ async function main(): Promise<void> {
     role: "worker",
   });
   const email = new SmtpEmailTransport({
-    defaultFrom: { address: "noreply@esmii.app", displayName: "Esmii" },
+    defaultFrom: { address: configuration.mailFromAddress, displayName: "Esmii" },
     smtpUrl: configuration.smtpUrl,
   });
   const queue = new PgBossActionLinkQueue(configuration.databaseUrl);
@@ -47,9 +47,14 @@ async function main(): Promise<void> {
       emailTransport: email,
       environment: configuration.appEnvironment,
       keyring: configuration.actionLinkKeyring,
+      messageIdDomain: configuration.messageIdDomain,
       magicLinkIssuer: workerAuth.issuer,
       publicOrigin: configuration.publicOrigin,
-      repository: new PostgresActionLinkDeliveryRepository(database, configuration.appEnvironment),
+      repository: new PostgresActionLinkDeliveryRepository(
+        database,
+        configuration.appEnvironment,
+        configuration.messageIdDomain,
+      ),
     });
     const dispatcher = new OutboxDispatcher({
       environment: configuration.appEnvironment,

@@ -5,18 +5,15 @@ import { CapturedTombstoneJournal } from "../security/tombstones.js";
 import { PostgresSecurityTombstoneOrchestrator } from "./tombstone-orchestrator.js";
 
 /**
- * Prompt 03 local/test adapter. External durable journals are provisioned only
- * by later infrastructure prompts; non-local runtimes fail closed until then.
+ * Development, test, and staging use the isolated database-backed capture adapter.
+ * Production remains fail-closed until its external durable journal is provisioned.
  */
 export async function createRuntimeTombstoneOrchestrator(input: {
   database: DatabaseClient;
   environment: AppEnvironment;
   mode: "capture" | "external";
 }): Promise<PostgresSecurityTombstoneOrchestrator> {
-  if (
-    input.mode !== "capture" ||
-    (input.environment !== "development" && input.environment !== "test")
-  ) {
+  if (input.mode !== "capture" || input.environment === "production") {
     throw new Error("external tombstone capture must be provisioned before this runtime can start");
   }
   const state = await readTombstoneRecoveryState(input.database.pool);

@@ -112,6 +112,9 @@ describe("server configuration", () => {
       ACTION_LINK_DERIVATION_KEYRING: keyring,
     });
 
+    expect(configuration.mailFromAddress).toBe("noreply@localhost");
+    expect(configuration.messageIdDomain).toBe("messages.localhost");
+
     expect(getActionLinkKey(configuration.actionLinkKeyring, "magic-link").version).toBe(2);
     expect(() => getActionLinkKey(configuration.actionLinkKeyring, "magic-link", 1)).toThrow(
       "unavailable or retired",

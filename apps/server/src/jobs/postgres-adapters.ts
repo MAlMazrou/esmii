@@ -52,10 +52,16 @@ function requireKeyVersion(value: string | null): number | null {
 export class PostgresActionLinkDeliveryRepository implements ActionLinkDeliveryRepository {
   readonly #database: DatabaseClient;
   readonly #environment: AppEnvironment;
+  readonly #messageIdDomain: string;
 
-  public constructor(database: DatabaseClient, environment: AppEnvironment) {
+  public constructor(
+    database: DatabaseClient,
+    environment: AppEnvironment,
+    messageIdDomain = "messages.invalid",
+  ) {
     this.#database = database;
     this.#environment = environment;
+    this.#messageIdDomain = messageIdDomain;
   }
 
   public async getCurrentIntent(input: {
@@ -153,7 +159,7 @@ export class PostgresActionLinkDeliveryRepository implements ActionLinkDeliveryR
       attemptNumber: identity.attemptNumber,
       outboxEventId: identity.eventId,
       reason,
-      stableMessageId: stableMessageId(identity.eventId, this.#environment),
+      stableMessageId: stableMessageId(identity.eventId, this.#environment, this.#messageIdDomain),
     });
   }
 }

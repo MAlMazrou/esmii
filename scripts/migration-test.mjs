@@ -167,10 +167,10 @@ case "$credential_source" in
           }
         }
       }
-      ' /run/secrets/development_valkey_users_acl)"
+      ' /run/secrets/valkey_users_acl)"
     ;;
   health)
-    IFS= read -r password < /run/secrets/development_valkey_health_password
+    IFS= read -r password < /run/secrets/valkey_health_password
     ;;
   *)
     exit 64

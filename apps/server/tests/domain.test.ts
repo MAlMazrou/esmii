@@ -180,8 +180,8 @@ describe("action-link worker boundaries", () => {
   });
 
   it("creates a stable retry message identity", () => {
-    expect(stableMessageId("event-synthetic-1", "test")).toBe(
-      "<event-synthetic-1.test@messages.esmii.app>",
+    expect(stableMessageId("event-synthetic-1", "test", "messages.example.test")).toBe(
+      "<event-synthetic-1.test@messages.example.test>",
     );
   });
 });

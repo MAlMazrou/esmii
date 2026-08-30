@@ -439,6 +439,8 @@ export async function renderActivationManifest(
     root,
     "infra/caddy/sites-enabled/staging.caddy",
   );
+  await chmod(join(root, "infra/caddy"), 0o755);
+  await chmod(join(root, "infra/caddy/sites-enabled"), 0o755);
   for (const path of [
     "infra/postgres/init-host.sh",
     "infra/postgres/staging.conf",

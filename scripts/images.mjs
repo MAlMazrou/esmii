@@ -180,8 +180,15 @@ function runRuntimeFixture({ environmentName, image, kind, port }) {
       "--env",
       `APP_VALKEY_URL=redis://${environmentName}-runtime@fixture.invalid/0`,
       "--env",
+      `APP_PUBLIC_ORIGIN=https://${environmentName}.example.invalid`,
+      "--env",
+      `BETTER_AUTH_SECRET=INERT_${environmentName.toUpperCase()}_BETTER_AUTH_SECRET_00000001`,
+      "--env",
       `OPERATIONS_HEALTH_TOKEN=INERT_${environmentName.toUpperCase()}_RUNTIME_FIXTURE_TOKEN_0001`,
     );
+    if (environmentName === "staging") {
+      arguments_.push("--env", "AUTH_STAGING_TESTER_EMAILS=synthetic.tester@example.invalid");
+    }
   } else {
     arguments_.push("--env", "HOSTNAME=127.0.0.1");
   }
@@ -190,7 +197,16 @@ function runRuntimeFixture({ environmentName, image, kind, port }) {
   let fixtureError;
   let startedSuccessfully = false;
   try {
-    const started = spawnLocalDocker(docker, [...arguments_, image], {
+    const runtimeCommand =
+      kind === "server"
+        ? [
+            "node",
+            "--input-type=module",
+            "-e",
+            "import { loadHttpServerConfig } from '@esmii/config/server'; await loadHttpServerConfig(); setInterval(() => undefined, 60000);",
+          ]
+        : [];
+    const started = spawnLocalDocker(docker, [...arguments_, image, ...runtimeCommand], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -208,12 +224,12 @@ function runRuntimeFixture({ environmentName, image, kind, port }) {
             "node",
             "--input-type=module",
             "-e",
-            `import { loadHttpServerConfig } from '@esmii/config/server'; const config = await loadHttpServerConfig(); if (config.appEnvironment !== '${environmentName}' || config.port !== ${port}) process.exit(1); const response = await fetch('http://127.0.0.1:${port}/api/health/live'); if (!response.ok || (await response.json()).status !== 'ok') process.exit(1);`,
+            `import { loadHttpServerConfig } from '@esmii/config/server'; const config = await loadHttpServerConfig(); if (config.appEnvironment !== '${environmentName}' || config.port !== ${port} || config.authentication.publicOrigin !== 'https://${environmentName}.example.invalid') process.exit(1);`,
           ]
         : [
             "node",
             "-e",
-            `fetch('http://127.0.0.1:${port}/').then(async (response) => { const body = await response.text(); if (!response.ok || !body.includes('Account ready')) process.exit(1); }).catch(() => process.exit(1));`,
+            `fetch('http://127.0.0.1:${port}/').then(async (response) => { const body = await response.text(); if (!response.ok || !body.includes('Opening Esmii')) process.exit(1); }).catch(() => process.exit(1));`,
           ];
     waitForFixture(name, probe);
     fixtureImageId = expectedImageId;

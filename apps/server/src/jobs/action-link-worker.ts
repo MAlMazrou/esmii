@@ -78,6 +78,7 @@ export interface ActionLinkWorkerOptions {
   environment: AppEnvironment;
   keyring: ActionLinkKeyring;
   magicLinkIssuer: MagicLinkIssuer;
+  messageIdDomain?: string;
   publicOrigin: string;
   repository: ActionLinkDeliveryRepository;
 }
@@ -165,7 +166,8 @@ export class ActionLinkWorker {
       intent.keyVersion ?? undefined,
     );
     const messageId =
-      intent.stableMessageId ?? stableMessageId(payload.eventId, payload.environment);
+      intent.stableMessageId ??
+      stableMessageId(payload.eventId, payload.environment, this.#options.messageIdDomain);
     if (intent.status === "requested") {
       const committed = await this.#options.repository.commitIssuedHash({
         environment: this.#options.environment,
