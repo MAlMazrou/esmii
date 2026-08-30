@@ -40,6 +40,21 @@ describe("staging pull policy", () => {
     expect(dependencyStart).toBeGreaterThan(caddyReservation);
   });
 
+  it("waits for the temporary demo to release public ports before starting Caddy", async () => {
+    const script = await readFile("infra/staging-pull/esmii-staging-pull", "utf8");
+    const demoStop = script.indexOf("docker stop esmii-staging-demo");
+    const portWait = script.indexOf("wait_for_public_ports || return 1");
+    const caddyStart = script.indexOf("docker start esmii-caddy-1");
+    const applicationStart = script.indexOf(
+      "compose up -d --wait staging-api staging-worker staging-web",
+    );
+
+    expect(demoStop).toBeGreaterThan(-1);
+    expect(portWait).toBeGreaterThan(demoStop);
+    expect(caddyStart).toBeGreaterThan(portWait);
+    expect(applicationStart).toBeGreaterThan(caddyStart);
+  });
+
   it("keeps canonical staging secrets root-only and mounts only isolated runtime copies", async () => {
     const [compose, puller, preparer] = await Promise.all([
       readFile("infra/compose.staging.yaml", "utf8"),
