@@ -16,8 +16,10 @@ install -d -m 0755 /usr/local/libexec/esmii "${SHARE_ROOT}" "${SHARE_ROOT}/caddy
 install -d -m 0755 "${RUNTIME_ROOT}" "${RUNTIME_ROOT}/caddy/sites-enabled" "${RUNTIME_ROOT}/postgres" "${RUNTIME_ROOT}/valkey" "${RUNTIME_ROOT}/stalwart"
 install -d -m 0700 /var/lib/esmii/production-pull /etc/myapp/secrets/production /etc/myapp/runtime-secrets/production
 install -d -m 0755 /srv/myapp/production/media/public/variants
-install -d -m 0700 -o 10001 -g 10001 /srv/myapp/production/media/private/incoming /srv/myapp/production/media/private/originals /srv/myapp/production/media/private/variants /srv/myapp/production/media/private/trash
-install -d -m 0700 -o 2000 -g 2000 /srv/myapp/production/stalwart/config /srv/myapp/production/stalwart/data
+install -d -m 0700 /srv/myapp/production/media/private/incoming /srv/myapp/production/media/private/originals /srv/myapp/production/media/private/variants /srv/myapp/production/media/private/trash
+chown 10001:10001 /srv/myapp/production/media/private/incoming /srv/myapp/production/media/private/originals /srv/myapp/production/media/private/variants /srv/myapp/production/media/private/trash
+install -d -m 0700 /srv/myapp/production/stalwart/config /srv/myapp/production/stalwart/data
+chown 2000:2000 /srv/myapp/production/stalwart/config /srv/myapp/production/stalwart/data
 
 install -m 0755 "${REPOSITORY_ROOT}/infra/production-pull/esmii-production-pull" /usr/local/libexec/esmii/esmii-production-pull
 install -m 0755 "${REPOSITORY_ROOT}/infra/production-pull/render-production.py" /usr/local/libexec/esmii/render-production.py

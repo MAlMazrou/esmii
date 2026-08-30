@@ -62,4 +62,12 @@ describe("production pull policy", () => {
     expect(preparer).toContain("source.chmod(0o600)");
     expect(preparer).toContain("temporary.chmod(0o444)");
   });
+
+  it("assigns container-owned directories by numeric uid without requiring host users", async () => {
+    const installer = await readFile("infra/production-pull/install.sh", "utf8");
+
+    expect(installer).toContain("chown 10001:10001");
+    expect(installer).toContain("chown 2000:2000");
+    expect(installer).not.toMatch(/install .* -o (?:10001|2000)\b/u);
+  });
 });
