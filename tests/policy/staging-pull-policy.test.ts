@@ -29,6 +29,17 @@ describe("staging pull policy", () => {
     expect(joined).not.toContain("production-worker");
   });
 
+  it("reserves Caddy's fixed edge address before starting dynamic edge services", async () => {
+    const script = await readFile("infra/staging-pull/esmii-staging-pull", "utf8");
+    const caddyReservation = script.indexOf("compose up --no-start --no-deps caddy");
+    const dependencyStart = script.indexOf(
+      "compose up -d --wait staging-postgres staging-valkey staging-mailpit",
+    );
+
+    expect(caddyReservation).toBeGreaterThan(-1);
+    expect(dependencyStart).toBeGreaterThan(caddyReservation);
+  });
+
   it("keeps canonical staging secrets root-only and mounts only isolated runtime copies", async () => {
     const [compose, puller, preparer] = await Promise.all([
       readFile("infra/compose.staging.yaml", "utf8"),

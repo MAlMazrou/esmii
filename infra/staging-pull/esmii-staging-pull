@@ -106,6 +106,9 @@ health_check() {
 }
 
 deploy_current_overlay() {
+  # Reserve Caddy's fixed edge address before Docker dynamically assigns
+  # addresses to the application containers on the same network.
+  compose up --no-start --no-deps caddy || return 1
   compose up -d --wait staging-postgres staging-valkey staging-mailpit || return 1
   compose --profile tools run --rm staging-migrate || return 1
   compose up -d --wait staging-api staging-worker staging-web || return 1
