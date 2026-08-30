@@ -1,8 +1,8 @@
 # Esmii
 
-This repository package defines how an implementation agent should start a small, self-hosted SaaS application on one Netcup server. The selected launch host is an x86 Netcup RS 1000 G12 with 4 dedicated cores, 8 GB ECC RAM, 256 GB NVMe, and IPv4 plus IPv6 connectivity. Staging is deployed first; production is added only by promoting the exact staging-tested images. The package contains the agreed requirements, architectural constraints, decisions, execution rules, and numbered implementation sequence.
+This repository package defines how an implementation agent should start a small, self-hosted SaaS application on one Netcup server. The selected launch host is an x86 Netcup RS 1000 G12 with 4 dedicated cores, 8 GB ECC RAM, 256 GB NVMe, and IPv4 plus IPv6 connectivity. Staging is deployed from successful `dev` CI and production is deployed independently from successful `main` CI, with immutable image identity and isolated runtime state in both environments. The package contains the agreed requirements, architectural constraints, decisions, execution rules, and numbered implementation sequence.
 
-> **Current status: Prompt 04 is completed and locally verified on `dev`; Prompt 05 is in progress and the temporary empty staging demo is live.** The verified Netcup VPS has completed the read-only baseline, bootstrap, administrator WireGuard/sudo, rescue-recovery, and SSH/UFW hardening gates. `https://staging.esmii.app` now serves a noindex Esmii placeholder over valid automatic HTTPS from one digest-pinned, read-only, resource-limited Caddy container. This direct first-demo exception was explicitly authorized on 30 August 2026 and is not the sealed application release: GitHub/GHCR publication, staging secrets, database/cache/Mailpit/API/worker/web services, immutable checkpointing, reconciler activation, and the full Prompt 05 acceptance suite remain outstanding. Production and internet mail are inactive, the Netcup provider firewall is unchanged, and `staging-dashboard.esmii.app` remains on its existing Worker.
+> **Current status: Prompt 05 is complete and automatic staging is active. Prompt 06's initial public application gate is authorized and in progress.** Successful `dev` CI runs update the isolated staging application at `https://staging.esmii.app`. The equivalent `main` path targets a separate production runtime at `https://esmii.app` and is public from first activation. Real outbound mail, production Google OAuth, real-user onboarding, offsite-backup acceptance, and the final hardened-production acceptance remain disabled until their separate requirements are completed.
 
 Tokens written as `<SEMANTIC_NAME>` are unresolved placeholders, not sample values, and must never be copied into production unchanged. Only rows marked `REQUIRED INPUT` in `docs/decisions.md` must be supplied or approved by the user. SHA/digest/release/evidence/DKIM and similar placeholders are generated, verified, and recorded by the prompt that names them; the agent must not ask the user to invent those values.
 
@@ -65,9 +65,9 @@ For product definition, [`docs/prompts/product-discovery.md`](./docs/prompts/pro
 - Normal development and feature pull requests land on the protected `dev` branch.
 - A successful `dev` candidate is built once in GitHub Actions, pushed to GHCR by immutable digest, and deployed to the isolated staging environment.
 - Under the active Prompt 05 staging exception, the VPS polls the current `dev` SHA and its successful CI run over outbound HTTPS, prefers GHCR digests, and can build that exact successful SHA locally while anonymous GHCR pull is unavailable. GitHub-hosted runners do not SSH to the host.
-- `main` runs CI only. It cannot deploy until Prompt 06 creates and verifies production and separately authorizes the exact production promotion.
-- Production promotion manually selects that successful staging release and deploys the same web/server digests without rebuilding.
-- After production verification succeeds, a separate protected promotion identity advances `main` fast-forward-only to the staged source SHA. A later rollback is recorded by a reviewed forward rollback/revert commit; `main` is never force-moved backward. The sealed release manifest remains authoritative for exact runtime digests.
+- A successful `main` CI run publishes immutable full-SHA images and advances only the `:main` convenience pointers.
+- The VPS production timer polls outbound, resolves the main pointers to immutable digests, verifies source/revision labels, migrates and health-checks the isolated production runtime, and restores the preceding production overlay if activation fails.
+- `main` is never force-moved backward. A failed activation leaves the prior runtime serving while a reviewed fix or forward revert is prepared.
 - There are no long-lived `staging` or `production` branches. GitHub Environments, release manifests, credentials, data, domains, and Compose overlays provide environment separation.
 
 ### Copy-paste kickoff instruction
@@ -262,7 +262,7 @@ The authoritative input register is in [`docs/decisions.md`](./docs/decisions.md
 - the least-privilege GitHub App deployment-status credential (status/UI only), separate read-only GHCR credential, provenance identity, and protected production-promotion identity references;
 - the Netcup abuse-notice response owner and decision on obtaining Netcup's DPA;
 - production sender identities and operational mailboxes;
-- the phase-specific approvals for remote access, host changes, staging activation, provider changes, backup writes, test mail, exact-digest production promotion, public launch, and the final `main` fast-forward.
+- the phase-specific approvals for remote access, host changes, environment activation, provider changes, backup writes, test mail, and final production acceptance. The initial public `main` application automation is recorded in `DEC-INPUT-024`; deferred mail/OAuth/backup gates remain separate.
 
 Semantic placeholders may remain during documentation work. A prompt must stop if an unresolved value would materially change what it builds.
 

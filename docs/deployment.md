@@ -2,6 +2,18 @@
 
 ## 1. Deployment contract
 
+### Current branch-triggered application policy
+
+On 30 August 2026 the user replaced the planned manual application-promotion trigger with direct environment branch automation:
+
+- successful `dev` CI publishes immutable full-SHA images, advances only `:dev`, and the VPS staging timer activates them;
+- successful `main` CI publishes immutable full-SHA images, advances only `:main`, and the VPS production timer activates them;
+- both timers resolve mutable convenience pointers to immutable digests, verify OCI source/revision labels, serialize through one host lock, run migrations and health checks, and restore the preceding environment overlay on failure;
+- staging and production keep separate databases, Valkey instances, media roots, credentials, networks, cookies, and captured-mail state;
+- the initial public production application gate does not activate external SMTP, production Google OAuth, real-user onboarding, offsite-backup acceptance, or final hardened-production acceptance.
+
+This current policy controls application delivery where older sections below describe manual exact-staging-digest promotion. The sealed manifest design remains the target for later mail, backup, recovery, and fully accepted production transitions.
+
 The target is one Netcup RS 1000 G12 running Ubuntu 26.04 LTS with 4 dedicated x86-64 cores, 8 GB ECC RAM, 256 GB NVMe, static IPv4, and routed IPv6. Cloudflare remains authoritative DNS.
 
 The release flow is:

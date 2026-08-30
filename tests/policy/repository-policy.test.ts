@@ -26,7 +26,7 @@ describe("repository policy", () => {
     expect(joined).not.toContain("pull_request_target");
   });
 
-  it("publishes staging images only from a successful dev push", async () => {
+  it("publishes immutable branch images and advances environment-specific aliases", async () => {
     const contents = await readFile(".github/workflows/ci.yaml", "utf8");
 
     expect(contents).toContain("github.event_name == 'push' && github.ref == 'refs/heads/dev'");
@@ -34,9 +34,11 @@ describe("repository policy", () => {
     expect(contents).toContain("ghcr.io/malmazrou/esmii-server:sha-${{ github.sha }}");
     expect(contents).toContain("ghcr.io/malmazrou/esmii-web:dev");
     expect(contents).toContain("ghcr.io/malmazrou/esmii-server:dev");
+    expect(contents).toContain("github.ref == 'refs/heads/main'");
+    expect(contents).toContain("ghcr.io/malmazrou/esmii-web:main");
+    expect(contents).toContain("ghcr.io/malmazrou/esmii-server:main");
     expect(contents).toContain("docker buildx imagetools create");
     expect(contents).not.toContain(":latest");
-    expect(contents).not.toContain("refs/heads/main' &&");
   });
 
   it("pins actions and forbids rebuilds in production-promotion workflows", async () => {

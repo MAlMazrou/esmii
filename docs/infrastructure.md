@@ -7,6 +7,8 @@
 
 ## 1. The final recommendation
 
+**Current initial-production gate (30 August 2026):** the user authorized public `esmii.app` immediately and the same CI-gated outbound pull behavior for `main` that `dev` uses for staging. The first production runtime therefore uses separate PostgreSQL, Valkey, media, credentials, networks, and a non-delivering capture sink, with production Google OAuth and real-user onboarding disabled. Stalwart, internet mail, offsite-backup acceptance, and final hardened-production acceptance remain later gates. This current application-delivery decision supersedes older manual/restricted launch wording below where they conflict; the isolation and eventual hardened-service requirements remain.
+
 Start with one pnpm monorepo containing the frontend, modular-monolith backend, worker/migration entrypoints, shared packages, infrastructure, tests, CI/CD, and runbooks. Deploy with Docker Compose. The first remote release runs reduced staging; the next approved release adds production while retaining staging. The full 8 GB composition has one shared Caddy plus six staging services and six production services:
 
 1. shared Caddy;

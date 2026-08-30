@@ -11,7 +11,7 @@ The numbered sequence implements only the generic SaaS core. Intentionally incom
 3. [`03-build-auth-and-organizations.md`](03-build-auth-and-organizations.md) — implement the generic SaaS identity core on `dev`.
 4. [`04-prepare-vps.md`](04-prepare-vps.md) — prepare and locally validate both isolated VPS environments without touching Netcup.
 5. [`05-provision-vps-and-deploy-staging.md`](05-provision-vps-and-deploy-staging.md) — provision the 8 GB Netcup host and deploy staging first.
-6. [`06-promote-staging-to-production.md`](06-promote-staging-to-production.md) — manually promote the exact staging-tested digests to production, then advance `main` after verification.
+6. [`06-promote-staging-to-production.md`](06-promote-staging-to-production.md) — activate the isolated public production shell and the successful-`main` outbound deployment timer; mail, production OAuth, backup acceptance, and final hardening remain later gates.
 
 ## Optional product planning
 
@@ -22,7 +22,7 @@ The numbered sequence implements only the generic SaaS core. Intentionally incom
 - Read [`../../AGENTS.md`](../../AGENTS.md) before every prompt.
 - A completed prompt does not authorize the next prompt.
 - A prompt must stop at its stated stop condition even when the next action looks routine.
-- Prompts 02–05 operate from `dev`; Prompt 06 is the only prompt that may advance protected `main`.
+- Prompts 02–05 operate from `dev`; Prompt 06 owns the protected `main` production path.
 - Do not create `staging` or `production` branches. A branch name is not an environment boundary.
 - Never put secret values in a prompt, Git, logs, command history, screenshots, or reports.
 - Record commands that were actually run separately from commands merely recommended for the next phase.

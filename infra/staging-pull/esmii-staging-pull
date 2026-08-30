@@ -7,8 +7,10 @@ readonly CONFIG_PATH=/etc/myapp/staging-pull.conf
 readonly SOURCE_ROOT=/usr/local/share/esmii/staging-pull
 readonly RUNTIME_ROOT=/srv/myapp/staging-runtime
 readonly STATE_ROOT=/var/lib/esmii/staging-pull
-readonly LOCK_PATH=/run/lock/esmii/staging-pull.lock
+readonly LOCK_PATH=/run/lock/esmii/host-pull.lock
 readonly OVERLAY_PATH="${RUNTIME_ROOT}/compose.staging.yaml"
+readonly PRODUCTION_OVERLAY_PATH="${RUNTIME_ROOT}/compose.production.yaml"
+readonly PRODUCTION_CAPTURE_OVERLAY_PATH="${RUNTIME_ROOT}/compose.production.capture.yaml"
 readonly PREVIOUS_OVERLAY_PATH="${STATE_ROOT}/compose.staging.previous.yaml"
 readonly STATE_PATH="${STATE_ROOT}/current.env"
 
@@ -87,11 +89,17 @@ image_label() {
 }
 
 compose() {
-  docker compose \
-    --project-name esmii \
-    -f "${RUNTIME_ROOT}/compose.yaml" \
-    -f "${OVERLAY_PATH}" \
-    "$@"
+  local -a compose_files=(
+    -f "${RUNTIME_ROOT}/compose.yaml"
+    -f "${OVERLAY_PATH}"
+  )
+  if [[ -f ${PRODUCTION_OVERLAY_PATH} ]]; then
+    compose_files+=(-f "${PRODUCTION_OVERLAY_PATH}")
+    if [[ -f ${PRODUCTION_CAPTURE_OVERLAY_PATH} ]]; then
+      compose_files+=(-f "${PRODUCTION_CAPTURE_OVERLAY_PATH}")
+    fi
+  fi
+  docker compose --project-name esmii "${compose_files[@]}" "$@"
 }
 
 health_check() {
@@ -147,7 +155,11 @@ rollback() {
     return
   fi
 
-  compose down --remove-orphans || true
+  compose stop staging-api staging-worker staging-web staging-mailpit staging-valkey staging-postgres || true
+  compose rm -f staging-api staging-worker staging-web staging-mailpit staging-valkey staging-postgres || true
+  if [[ -f ${PRODUCTION_OVERLAY_PATH} ]]; then
+    compose up -d --wait caddy || true
+  fi
   if docker container inspect esmii-staging-demo >/dev/null 2>&1; then
     docker start esmii-staging-demo >/dev/null || true
   fi

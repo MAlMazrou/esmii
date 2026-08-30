@@ -18,15 +18,15 @@ Cloudflare remains the registrar and authoritative DNS provider. Netcup supplies
 | Public edge | local port | shared Caddy, staging hostname | shared Caddy, production hostname |
 | PostgreSQL | `development-postgres` | `staging-postgres` | `production-postgres` |
 | Valkey | `development-valkey` | `staging-valkey` | `production-valkey` |
-| Email | Mailpit | separate Mailpit | Stalwart, transactional-only |
-| Security tombstones | local capture/fault adapter | isolated capture/fault adapter | encrypted append-only off-Netcup journal |
+| Email | Mailpit | separate Mailpit | isolated non-delivering capture initially; Stalwart only after mail approval |
+| Security tombstones | local capture/fault adapter | isolated capture/fault adapter | isolated capture initially; encrypted append-only off-Netcup journal after its gate |
 | Auth secret/cookie | development-only | staging-only | production-only |
-| OAuth clients | optional local Google | staging-only Google client | production-only Google client |
+| OAuth clients | optional local Google | staging-only Google client | disabled initially; separate production-only Google client after its gate |
 | Media roots | disposable local | `/srv/myapp/staging/media/{public,private}` | `/srv/myapp/production/media/{public,private}` |
 | Data retention | disposable | disposable test data | durable customer data |
 | Backup | none | excluded from production Restic dataset | Restic repository outside Netcup |
-| Deployment source | working tree | protected `dev` candidate | exact staging-tested candidate |
-| User access | developer | tester allowlist | restricted until launch approval |
+| Deployment source | working tree | successful protected `dev` candidate | successful protected `main` candidate |
+| User access | developer | tester allowlist | public empty shell; real-user onboarding disabled until production auth/mail gates |
 
 ## 3. Rules that apply everywhere
 
@@ -36,7 +36,7 @@ Cloudflare remains the registrar and authoritative DNS provider. Netcup supplies
 - `/api/health/live` and `/api/health/ready` are public and minimal. `/api/health/dependencies` requires operator authorization and must not disclose credentials or sensitive topology.
 - Only prepared, public, content-hashed media variants may be served by Caddy. Private media always passes through Fastify authorization.
 - Environment-prefixed containers, volumes, networks, credentials, cookies, OAuth clients, and filesystem roots are mandatory.
-- Development/staging email cannot route through production Stalwart. Production cannot use Mailpit.
+- Development/staging email cannot route through production Stalwart. The initial public production shell may use its own isolated non-delivering capture sink; accepted production mail uses Stalwart only after the mail gate.
 - Development/staging cannot receive the production security-tombstone journal credential or route; only production API receives its create-only identity, while recovery/read/delete authority remains off-host.
 - Runtime roles cannot perform database migrations. API and worker use separate database roles and separate Valkey ACL users.
 - Workers have no public default route. APIs receive only the egress explicitly required by product behavior.
@@ -60,7 +60,7 @@ The development API mounts neither the action-link derivation keyring nor pg-bos
 
 The Google callback is optional locally. Providers outside the active Google-only scope remain disabled and unconfigured.
 
-Prompts 03 and 04 are completed and locally verified on `dev`. Prompt 04 added only local infrastructure code and synthetic fixture validation. Prompt 05 has completed its separately approved initial access, read-only baseline, bootstrap check/apply, verified WireGuard/passwordless-sudo gate, persistent macOS import, Netcup console/rescue recovery proof, corrected SSH/host-firewall hardening check/apply, staging DNS, and Google-only OAuth registration/credential capture. The apply used the keyed VPN operator with passwordless sudo. Management SSH is now key-only for `esmii-administrator` through `10.77.0.1`, public SSH is denied, and UFW is active with only VPN-scoped SSH plus public WireGuard and web rules. The Netcup provider firewall remains unchanged, and no OAuth credential is installed on the VPS. Every later VPS operation, staging/production secret, external OAuth application/callback change, provider change, service activation, and deployment remains separately gated and unauthorized.
+Prompts 03 and 04 are completed and locally verified on `dev`. Prompt 05 is complete and its `dev` timer automatically updates staging after successful CI. Management SSH is key-only for `esmii-administrator` through `10.77.0.1`; UFW permits only VPN-scoped SSH plus public WireGuard and web traffic, and the Netcup provider firewall is unchanged. On 30 August 2026 the user authorized a separate public `main` application timer and public `esmii.app` DNS. Production Google OAuth, external mail, real-user onboarding, backup acceptance, and final hardened-production acceptance remain inactive.
 
 ## 5. Initial remote state: staging first
 
@@ -112,6 +112,8 @@ GitHub-hosted runners do not SSH to the host. Post-deployment smoke tests run lo
 
 ## 6. Production activation
 
+For the current initial application gate, successful `main` CI publishes immutable full-SHA images and advances `:main`; the separate production timer resolves the pointers to digests, verifies labels, and activates only production. It starts publicly at `esmii.app` with an isolated non-delivering capture sink and Google OAuth disabled. This is the user's 30 August 2026 override of the older restricted/manual application-promotion sequence below; the sealed sequence remains the target for final mail, backup, recovery, and hardened-production acceptance.
+
 Prompt 06 promotes the exact currently active staging-tested application-payload and image digests. It does not rebuild them. It creates a new signed production activation manifest because the host transition adds `infra/compose.production.yaml` while keeping staging active. The manifest references one unchanged shared-infrastructure payload plus a separate application payload in each environment block; its digest/signature live in the external deployment/sealed-release envelope to avoid a self-hash. Its abbreviated environment/overlay state is:
 
 ```yaml
@@ -150,9 +152,9 @@ Production uses separate PostgreSQL, Valkey, media, secrets, cookies, OAuth clie
 - A successful `dev` candidate is built once, tested, published to GHCR by digest, and deployed to staging.
 - After Prompt 05 explicitly activates the narrow ongoing policy, later qualifying protected-`dev` candidates may deploy automatically through the unchanged signed/reconciled path; workflow, credential, provider, secret, or policy changes require new approval.
 - The staging release record stores source SHA, immutable shared-infrastructure and staging-application payload digests, staging activation-manifest digest, image digests, test results, and deployment status.
-- Production promotion is manual and reuses those exact digests. A changed source SHA or digest is a new staging candidate.
-- Protected `main` records the code tree verified live in production. It advances only after production success, normally by fast-forwarding to the staged source SHA.
-- A failed production activation does not advance `main`.
+- Successful `main` push CI publishes a separate immutable production candidate and advances only the `:main` convenience pointers.
+- The VPS production timer resolves those pointers to digests, verifies the exact main SHA and repository labels, and updates only production.
+- A failed production activation leaves the preceding production runtime serving even though `main` may be newer; repair or revert forward rather than force-moving `main` backward.
 - A later runtime rollback creates a new signed activation manifest that preserves current staging/shared infrastructure and restores only the previous compatible production block. It never reactivates an old whole-host manifest. Then a reviewed forward rollback/revert commit records the restored live code tree; `main` is never force-pushed backward.
 - Merge that forward rollback/revert record back into `dev` before another production promotion so `main` remains an ancestor of the candidate.
 - The root-sealed host release manifest is authoritative for the exact runtime image/configuration digests. Git branches are development and audit history, not a substitute for the manifest.

@@ -239,8 +239,8 @@ jobs:
           path: sbom-*.spdx.json
           if-no-files-found: error
           retention-days: 14
-      - name: Publish immutable dev candidate images
-        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+      - name: Publish immutable branch candidate images
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SERVER_IMAGE: ghcr.io/malmazrou/esmii-server:sha-${{ github.sha }}
@@ -317,3 +317,39 @@ jobs:
           docker buildx imagetools create --tag "${SERVER_STAGING}" "${SERVER_CANDIDATE}"
           docker buildx imagetools inspect "${WEB_STAGING}"
           docker buildx imagetools inspect "${SERVER_STAGING}"
+
+  publish-production:
+    name: Publish verified main candidate for production
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - quality
+      - integration
+      - compose
+      - host-infrastructure
+      - images
+      - end-to-end
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: production
+      url: https://esmii.app
+    permissions:
+      contents: read
+      deployments: write
+      packages: write
+    steps:
+      - name: Authenticate to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "${GHCR_TOKEN}" | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+      - name: Advance only the production main tags
+        env:
+          SERVER_CANDIDATE: ghcr.io/malmazrou/esmii-server:sha-${{ github.sha }}
+          SERVER_PRODUCTION: ghcr.io/malmazrou/esmii-server:main
+          WEB_CANDIDATE: ghcr.io/malmazrou/esmii-web:sha-${{ github.sha }}
+          WEB_PRODUCTION: ghcr.io/malmazrou/esmii-web:main
+        run: |
+          docker buildx imagetools create --tag "${WEB_PRODUCTION}" "${WEB_CANDIDATE}"
+          docker buildx imagetools create --tag "${SERVER_PRODUCTION}" "${SERVER_CANDIDATE}"
+          docker buildx imagetools inspect "${WEB_PRODUCTION}"
+          docker buildx imagetools inspect "${SERVER_PRODUCTION}"
