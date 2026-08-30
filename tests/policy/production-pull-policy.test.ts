@@ -38,6 +38,13 @@ describe("production pull policy", () => {
     expect(production).toContain("/run/lock/esmii/host-pull.lock");
   });
 
+  it("schedules production polling after first enable and after every run", async () => {
+    const timer = await readFile("infra/production-pull/esmii-production-pull.timer", "utf8");
+
+    expect(timer).toContain("OnActiveSec=120s");
+    expect(timer).toContain("OnUnitActiveSec=120s");
+  });
+
   it("captures bounded API diagnostics before a failed activation rolls back", async () => {
     const script = await readFile("infra/production-pull/esmii-production-pull", "utf8");
     const diagnostic = "compose logs --no-color --tail 120 production-api";
