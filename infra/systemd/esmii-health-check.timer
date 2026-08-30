@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Esmii health checks every five minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Unit=esmii-health-check.service
+
+[Install]
+WantedBy=timers.target
+

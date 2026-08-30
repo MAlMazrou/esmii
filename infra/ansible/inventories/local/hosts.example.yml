@@ -1,0 +1,12 @@
+---
+all:
+  hosts:
+    prompt04-disposable-local:
+      ansible_connection: local
+      ansible_python_interpreter: /usr/bin/python3
+      esmii_test_mode: true
+      esmii_target_root: /tmp/esmii-prompt04-ansible
+      esmii_admin_ipv4_cidrs:
+        - 192.0.2.10/32
+      esmii_admin_ipv6_cidrs: []
+      esmii_operator_name: synthetic-operator

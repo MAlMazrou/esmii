@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esmii.app/schemas/sealed-input-record.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "record_id", "required_files"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "record_id": { "type": "string", "minLength": 16 },
+    "required_files": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]+$" }
+    }
+  }
+}

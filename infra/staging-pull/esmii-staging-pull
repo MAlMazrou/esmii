@@ -1,0 +1,233 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+
+readonly CONFIG_PATH=/etc/myapp/staging-pull.conf
+readonly SOURCE_ROOT=/usr/local/share/esmii/staging-pull
+readonly RUNTIME_ROOT=/srv/myapp/staging-runtime
+readonly STATE_ROOT=/var/lib/esmii/staging-pull
+readonly LOCK_PATH=/run/lock/esmii/staging-pull.lock
+readonly OVERLAY_PATH="${RUNTIME_ROOT}/compose.staging.yaml"
+readonly PREVIOUS_OVERLAY_PATH="${STATE_ROOT}/compose.staging.previous.yaml"
+readonly STATE_PATH="${STATE_ROOT}/current.env"
+
+if [[ ${EUID} -ne 0 ]]; then
+  echo "The staging pull service must run as root." >&2
+  exit 1
+fi
+
+if [[ ! -f ${CONFIG_PATH} || -L ${CONFIG_PATH} ]]; then
+  echo "Missing or unsafe staging pull configuration." >&2
+  exit 1
+fi
+
+declare -A configuration=()
+while IFS='=' read -r key value; do
+  [[ -z ${key} || ${key} == \#* ]] && continue
+  case "${key}" in
+    ESMII_GITHUB_REPOSITORY | ESMII_IMAGE_SOURCE | ESMII_WEB_IMAGE | ESMII_SERVER_IMAGE | ESMII_STAGING_DOMAIN | ESMII_STAGING_EDGE_SUBNET | ESMII_STAGING_CADDY_IP | ESMII_STAGING_ADMIN_HEALTH_CIDRS)
+      configuration["${key}"]=${value}
+      ;;
+    *)
+      echo "Unknown staging pull configuration key: ${key}" >&2
+      exit 1
+      ;;
+  esac
+done < "${CONFIG_PATH}"
+
+for key in ESMII_GITHUB_REPOSITORY ESMII_IMAGE_SOURCE ESMII_WEB_IMAGE ESMII_SERVER_IMAGE ESMII_STAGING_DOMAIN ESMII_STAGING_EDGE_SUBNET ESMII_STAGING_CADDY_IP ESMII_STAGING_ADMIN_HEALTH_CIDRS; do
+  if [[ -z ${configuration[${key}]:-} ]]; then
+    echo "Missing staging pull configuration key: ${key}" >&2
+    exit 1
+  fi
+done
+
+readonly GITHUB_REPOSITORY=${configuration[ESMII_GITHUB_REPOSITORY]}
+readonly IMAGE_SOURCE=${configuration[ESMII_IMAGE_SOURCE]}
+readonly WEB_REPOSITORY=${configuration[ESMII_WEB_IMAGE]}
+readonly SERVER_REPOSITORY=${configuration[ESMII_SERVER_IMAGE]}
+readonly STAGING_DOMAIN=${configuration[ESMII_STAGING_DOMAIN]}
+readonly EDGE_SUBNET=${configuration[ESMII_STAGING_EDGE_SUBNET]}
+readonly CADDY_IP=${configuration[ESMII_STAGING_CADDY_IP]}
+readonly ADMIN_HEALTH_CIDRS=${configuration[ESMII_STAGING_ADMIN_HEALTH_CIDRS]}
+
+[[ ${GITHUB_REPOSITORY} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "Invalid GitHub repository." >&2; exit 1; }
+[[ ${IMAGE_SOURCE} == "https://github.com/${GITHUB_REPOSITORY}" ]] || { echo "Invalid image source." >&2; exit 1; }
+[[ ${WEB_REPOSITORY} =~ ^ghcr\.io/[a-z0-9_.-]+/[a-z0-9_.-]+$ ]] || { echo "Invalid web image repository." >&2; exit 1; }
+[[ ${SERVER_REPOSITORY} =~ ^ghcr\.io/[a-z0-9_.-]+/[a-z0-9_.-]+$ ]] || { echo "Invalid server image repository." >&2; exit 1; }
+[[ ${STAGING_DOMAIN} =~ ^[a-z0-9.-]+$ ]] || { echo "Invalid staging domain." >&2; exit 1; }
+[[ ${EDGE_SUBNET} =~ ^[0-9./]+$ && ${CADDY_IP} =~ ^[0-9.]+$ && ${ADMIN_HEALTH_CIDRS} =~ ^[0-9./]+$ ]] || { echo "Invalid staging network configuration." >&2; exit 1; }
+
+install -d -m 0755 "$(dirname "${LOCK_PATH}")"
+install -d -m 0700 "${STATE_ROOT}"
+exec 9>"${LOCK_PATH}"
+if ! flock -n 9; then
+  echo "Another staging pull is already active; deferring."
+  exit 0
+fi
+
+resolve_digest_reference() {
+  local repository=$1
+  local tag=$2
+  local candidate
+  while IFS= read -r candidate; do
+    if [[ ${candidate} == "${repository}@sha256:"* ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done < <(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${repository}:${tag}")
+  return 1
+}
+
+image_label() {
+  docker image inspect --format "{{index .Config.Labels \"$2\"}}" "$1"
+}
+
+compose() {
+  docker compose \
+    --project-name esmii \
+    -f "${RUNTIME_ROOT}/compose.yaml" \
+    -f "${OVERLAY_PATH}" \
+    "$@"
+}
+
+health_check() {
+  local attempt
+  for attempt in $(seq 1 30); do
+    if curl --fail --silent --show-error --max-time 15 "https://${STAGING_DOMAIN}/api/health/live" >/dev/null; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+deploy_current_overlay() {
+  compose up -d --wait staging-postgres staging-valkey staging-mailpit || return 1
+  compose --profile tools run --rm staging-migrate || return 1
+  compose up -d --wait staging-api staging-worker staging-web || return 1
+
+  if [[ ${DEMO_WAS_RUNNING} == true ]]; then
+    docker stop esmii-staging-demo >/dev/null || return 1
+  fi
+  compose up -d --wait caddy || return 1
+  health_check || return 1
+}
+
+rollback() {
+  echo "Staging activation failed; restoring the preceding staging service." >&2
+  if [[ -f ${PREVIOUS_OVERLAY_PATH} ]]; then
+    install -m 0644 "${PREVIOUS_OVERLAY_PATH}" "${OVERLAY_PATH}"
+    compose up -d --wait staging-postgres staging-valkey staging-mailpit || true
+    compose up -d --wait staging-api staging-worker staging-web caddy || true
+    health_check || true
+    return
+  fi
+
+  compose down --remove-orphans || true
+  if docker container inspect esmii-staging-demo >/dev/null 2>&1; then
+    docker start esmii-staging-demo >/dev/null || true
+  fi
+}
+
+echo "Checking the protected dev staging candidate."
+readonly REMOTE_REVISION=$(curl --fail --silent --show-error --location --max-time 20 \
+  -H 'Accept: application/vnd.github+json' \
+  -H 'X-GitHub-Api-Version: 2022-11-28' \
+  "https://api.github.com/repos/${GITHUB_REPOSITORY}/branches/dev" \
+  | python3 -c 'import json, sys; print(json.load(sys.stdin)["commit"]["sha"])')
+[[ ${REMOTE_REVISION} =~ ^[0-9a-f]{40}$ ]] || { echo "GitHub returned an invalid dev revision." >&2; exit 1; }
+
+if [[ -f ${STATE_PATH} ]] && grep -Fqx "REVISION=${REMOTE_REVISION}" "${STATE_PATH}"; then
+  echo "Staging already runs the current dev revision."
+  exit 0
+fi
+
+readonly WORKFLOW_STATE=$(curl --fail --silent --show-error --location --max-time 20 \
+  -H 'Accept: application/vnd.github+json' \
+  -H 'X-GitHub-Api-Version: 2022-11-28' \
+  "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?branch=dev&event=push&per_page=20" \
+  | python3 -c 'import json, sys; revision=sys.argv[1]; runs=[run for run in json.load(sys.stdin).get("workflow_runs", []) if run.get("head_sha") == revision and run.get("path") == ".github/workflows/ci.yaml"]; print("success" if any(run.get("status") == "completed" and run.get("conclusion") == "success" for run in runs) else "failed" if any(run.get("status") == "completed" and run.get("conclusion") not in (None, "success") for run in runs) else "pending")' "${REMOTE_REVISION}")
+if [[ ${WORKFLOW_STATE} != success ]]; then
+  echo "The current dev CI workflow is ${WORKFLOW_STATE}; keeping the active staging revision."
+  exit 0
+fi
+
+WEB_IMAGE=
+SERVER_IMAGE=
+if docker pull "${WEB_REPOSITORY}:dev" >/dev/null 2>&1 && docker pull "${SERVER_REPOSITORY}:dev" >/dev/null 2>&1; then
+  WEB_IMAGE=$(resolve_digest_reference "${WEB_REPOSITORY}" dev)
+  SERVER_IMAGE=$(resolve_digest_reference "${SERVER_REPOSITORY}" dev)
+  [[ ${WEB_IMAGE} =~ @sha256:[0-9a-f]{64}$ && ${SERVER_IMAGE} =~ @sha256:[0-9a-f]{64}$ ]] || { echo "Could not resolve immutable application images." >&2; exit 1; }
+else
+  echo "GHCR pull is unavailable; building the exact successful dev revision on the VPS."
+  readonly SOURCE_ARCHIVE="${STATE_ROOT}/source-${REMOTE_REVISION}.tar.gz"
+  readonly SOURCE_DIRECTORY="${STATE_ROOT}/source-${REMOTE_REVISION}"
+  readonly SOURCE_TEMP="${SOURCE_ARCHIVE}.tmp"
+  rm -f "${SOURCE_TEMP}"
+  curl --fail --silent --show-error --location --max-time 120 \
+    "https://github.com/${GITHUB_REPOSITORY}/archive/${REMOTE_REVISION}.tar.gz" \
+    -o "${SOURCE_TEMP}"
+  mv "${SOURCE_TEMP}" "${SOURCE_ARCHIVE}"
+  if [[ ! -d ${SOURCE_DIRECTORY} ]]; then
+    install -d -m 0700 "${SOURCE_DIRECTORY}"
+    tar --extract --gzip --file "${SOURCE_ARCHIVE}" --directory "${SOURCE_DIRECTORY}" \
+      --strip-components=1 --no-same-owner --no-same-permissions
+  fi
+  docker build \
+    --build-arg "ESMII_IMAGE_SOURCE=${IMAGE_SOURCE}" \
+    --build-arg "ESMII_IMAGE_REVISION=${REMOTE_REVISION}" \
+    --file "${SOURCE_DIRECTORY}/apps/web/Dockerfile" \
+    --tag "esmii/web:sha-${REMOTE_REVISION}" \
+    "${SOURCE_DIRECTORY}"
+  docker build \
+    --build-arg "ESMII_IMAGE_SOURCE=${IMAGE_SOURCE}" \
+    --build-arg "ESMII_IMAGE_REVISION=${REMOTE_REVISION}" \
+    --file "${SOURCE_DIRECTORY}/apps/server/Dockerfile" \
+    --tag "esmii/server:sha-${REMOTE_REVISION}" \
+    "${SOURCE_DIRECTORY}"
+  WEB_IMAGE="esmii/web:sha-${REMOTE_REVISION}"
+  SERVER_IMAGE="esmii/server:sha-${REMOTE_REVISION}"
+fi
+
+readonly WEB_REVISION=$(image_label "${WEB_IMAGE}" org.opencontainers.image.revision)
+readonly SERVER_REVISION=$(image_label "${SERVER_IMAGE}" org.opencontainers.image.revision)
+readonly WEB_SOURCE=$(image_label "${WEB_IMAGE}" org.opencontainers.image.source)
+readonly SERVER_SOURCE=$(image_label "${SERVER_IMAGE}" org.opencontainers.image.source)
+[[ ${WEB_REVISION} == "${REMOTE_REVISION}" && ${SERVER_REVISION} == "${REMOTE_REVISION}" ]] || { echo "Image revisions do not match the successful dev revision." >&2; exit 1; }
+[[ ${WEB_SOURCE} == "${IMAGE_SOURCE}" && ${SERVER_SOURCE} == "${IMAGE_SOURCE}" ]] || { echo "Image sources do not match the configured repository." >&2; exit 1; }
+
+rm -f "${PREVIOUS_OVERLAY_PATH}"
+if [[ -f ${STATE_PATH} && -f ${OVERLAY_PATH} ]]; then
+  install -m 0644 "${OVERLAY_PATH}" "${PREVIOUS_OVERLAY_PATH}"
+fi
+
+python3 /usr/local/libexec/esmii/render-staging.py \
+  --source-root "${SOURCE_ROOT}" \
+  --runtime-root "${RUNTIME_ROOT}" \
+  --web-image "${WEB_IMAGE}" \
+  --server-image "${SERVER_IMAGE}" \
+  --domain "${STAGING_DOMAIN}" \
+  --edge-subnet "${EDGE_SUBNET}" \
+  --caddy-ip "${CADDY_IP}" \
+  --admin-health-cidrs "${ADMIN_HEALTH_CIDRS}"
+
+docker compose --project-name esmii -f "${RUNTIME_ROOT}/compose.yaml" -f "${OVERLAY_PATH}" config --quiet
+
+readonly DEMO_WAS_RUNNING=$(if [[ $(docker container inspect --format '{{.State.Running}}' esmii-staging-demo 2>/dev/null || true) == true ]]; then echo true; else echo false; fi)
+
+if ! deploy_current_overlay; then
+  rollback
+  exit 1
+fi
+
+readonly STATE_TEMP="${STATE_PATH}.tmp"
+{
+  printf 'REVISION=%s\n' "${WEB_REVISION}"
+  printf 'WEB_IMAGE=%s\n' "${WEB_IMAGE}"
+  printf 'SERVER_IMAGE=%s\n' "${SERVER_IMAGE}"
+} > "${STATE_TEMP}"
+chmod 0600 "${STATE_TEMP}"
+mv "${STATE_TEMP}" "${STATE_PATH}"
+echo "Activated staging revision ${WEB_REVISION}."

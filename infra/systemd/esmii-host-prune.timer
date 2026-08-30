@@ -1,0 +1,13 @@
+[Unit]
+Description=Run Esmii host prune weekly
+
+[Timer]
+OnCalendar=Sat *-*-* 04:30:00 UTC
+Persistent=true
+RandomizedDelaySec=15min
+AccuracySec=1min
+Unit=esmii-host-prune.service
+
+[Install]
+WantedBy=timers.target
+

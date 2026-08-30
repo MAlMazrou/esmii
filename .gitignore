@@ -1,0 +1,28 @@
+# Dependencies and build output
+node_modules/
+__pycache__/
+*.pyc
+.pnpm-store/
+.next/
+dist/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# Local environment state and generated credentials
+.local/
+infra/.env.development.local
+infra/ansible/inventories/**/hosts.yml
+.env
+.env.*
+!.env.example
+
+# Editor and operating-system files
+.DS_Store
+*.swp
+*.tmp
+
+# Logs
+*.log
+pnpm-debug.log*

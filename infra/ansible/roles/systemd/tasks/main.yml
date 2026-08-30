@@ -1,0 +1,55 @@
+---
+- name: Record systemd enablement boundaries in disposable validation mode
+  ansible.builtin.copy:
+    content: "Prompt05=reconciler,health,host-prune,maintenance; Prompt06=database-backup,state-backup,restore-check\n"
+    dest: "{{ esmii_target_root }}/systemd.plan"
+    mode: "0600"
+  when: esmii_test_mode | bool
+
+- name: Install Esmii systemd units and timers without enabling future gates
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/etc/systemd/system/{{ item | basename }}"
+    owner: root
+    group: root
+    mode: "0644"
+  with_fileglob:
+    - "{{ role_path }}/../../../systemd/*"
+  notify: Reload systemd
+  when: not esmii_test_mode | bool
+
+- name: Enable only Prompt 05 timers after its explicit gate
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - esmii-deployment-reconciler.timer
+    - esmii-health-check.timer
+    - esmii-host-prune.timer
+    - esmii-maintenance.timer
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_prompt05_timers | bool
+
+- name: Enable the Docker-aware firewall only after Prompt 05 review
+  ansible.builtin.systemd_service:
+    name: esmii-docker-firewall.service
+    enabled: true
+    state: started
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_prompt05_timers | bool
+
+- name: Enable only Prompt 06 timers after its explicit gate
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - esmii-database-backup.timer
+    - esmii-state-backup.timer
+    - esmii-restore-check.timer
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_prompt06_timers | bool

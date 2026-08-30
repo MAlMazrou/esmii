@@ -1,0 +1,6 @@
+{
+	admin off
+	email @@CERTIFICATE_CONTACT@@
+}
+
+import /etc/caddy/sites-enabled/*.caddy

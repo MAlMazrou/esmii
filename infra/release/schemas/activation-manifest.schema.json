@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esmii.app/schemas/activation-manifest.schema.json",
+  "title": "Esmii activation manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "release_id",
+    "previous_release_id",
+    "previous_activation_manifest_digest",
+    "deployment_epoch",
+    "deployment_sequence",
+    "compose_project",
+    "infrastructure_sha",
+    "shared_infrastructure_payload_digest",
+    "certificate_contact",
+    "active_compose_files",
+    "rendered_compose_digest",
+    "change_targets",
+    "shared_config_digest",
+    "promotion_source_checkpoint_digest",
+    "environments"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "release_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,79}$" },
+    "previous_release_id": { "type": ["string", "null"] },
+    "previous_activation_manifest_digest": { "$ref": "#/$defs/nullableDigest" },
+    "deployment_epoch": { "type": "string", "minLength": 1 },
+    "deployment_sequence": { "type": "integer", "minimum": 1 },
+    "compose_project": { "const": "esmii-host" },
+    "infrastructure_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "shared_infrastructure_payload_digest": { "$ref": "#/$defs/digest" },
+    "certificate_contact": { "type": "string", "format": "email" },
+    "active_compose_files": {
+      "oneOf": [
+        { "const": ["infra/compose.yaml", "infra/compose.staging.yaml"] },
+        {
+          "const": [
+            "infra/compose.yaml",
+            "infra/compose.staging.yaml",
+            "infra/compose.production.yaml"
+          ]
+        }
+      ]
+    },
+    "rendered_compose_digest": { "$ref": "#/$defs/digest" },
+    "change_targets": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "staging",
+          "production",
+          "shared-infrastructure",
+          "production-mail",
+          "public-edge",
+          "rollback"
+        ]
+      }
+    },
+    "shared_config_digest": { "$ref": "#/$defs/digest" },
+    "promotion_source_checkpoint_digest": { "$ref": "#/$defs/nullableDigest" },
+    "environments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["staging", "production"],
+      "properties": {
+        "staging": { "$ref": "#/$defs/staging" },
+        "production": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/production" }] }
+      }
+    }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "nullableDigest": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }] },
+    "image": {
+      "type": "string",
+      "pattern": "^ghcr\\.io/malmazrou/esmii-(web|server)@sha256:[0-9a-f]{64}$"
+    },
+    "cidrs": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
+    "transition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": { "from": { "type": "string" }, "to": { "type": "string" } }
+    },
+    "common": {
+      "type": "object",
+      "required": [
+        "sealed_input_record_id",
+        "sealed_input_record_mac",
+        "application_payload_digest",
+        "source_sha",
+        "app_domain",
+        "admin_health_cidrs",
+        "edge_subnet",
+        "caddy_ip",
+        "web_image",
+        "server_image",
+        "config_digest",
+        "schema_transition",
+        "ci_evidence_digest"
+      ]
+    },
+    "staging": {
+      "allOf": [
+        { "$ref": "#/$defs/common" },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "sealed_input_record_id": { "type": "string" },
+            "sealed_input_record_mac": {
+              "type": "string",
+              "pattern": "^hmac-sha256:[0-9a-f]{64}$"
+            },
+            "application_payload_digest": { "$ref": "#/$defs/digest" },
+            "source_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+            "app_domain": { "type": "string" },
+            "admin_health_cidrs": { "$ref": "#/$defs/cidrs" },
+            "edge_subnet": { "type": "string" },
+            "caddy_ip": { "type": "string" },
+            "web_image": { "$ref": "#/$defs/image" },
+            "server_image": { "$ref": "#/$defs/image" },
+            "config_digest": { "$ref": "#/$defs/digest" },
+            "schema_transition": { "$ref": "#/$defs/transition" },
+            "ci_evidence_digest": { "$ref": "#/$defs/digest" }
+          }
+        }
+      ]
+    },
+    "production": {
+      "allOf": [
+        { "$ref": "#/$defs/common" },
+        {
+          "type": "object",
+          "required": [
+            "edge_mode",
+            "edge_fragment_digest",
+            "prelaunch_test_cidrs",
+            "prelaunch_test_cidrs_digest",
+            "mail_mode",
+            "mail_domain",
+            "mail_hostname",
+            "bounce_domain",
+            "production_mail_admin_subnet",
+            "stalwart_mail_admin_ip",
+            "mail_config_digest",
+            "mail_evidence_digest"
+          ],
+          "properties": {
+            "sealed_input_record_id": { "type": "string" },
+            "sealed_input_record_mac": { "type": "string" },
+            "application_payload_digest": { "$ref": "#/$defs/digest" },
+            "source_sha": { "type": "string" },
+            "app_domain": { "type": "string" },
+            "admin_health_cidrs": { "$ref": "#/$defs/cidrs" },
+            "edge_subnet": { "type": "string" },
+            "caddy_ip": { "type": "string" },
+            "web_image": { "$ref": "#/$defs/image" },
+            "server_image": { "$ref": "#/$defs/image" },
+            "config_digest": { "$ref": "#/$defs/digest" },
+            "schema_transition": { "$ref": "#/$defs/transition" },
+            "ci_evidence_digest": { "$ref": "#/$defs/digest" },
+            "edge_mode": { "enum": ["restricted", "public"] },
+            "edge_fragment_digest": { "$ref": "#/$defs/digest" },
+            "prelaunch_test_cidrs": { "$ref": "#/$defs/cidrs" },
+            "prelaunch_test_cidrs_digest": { "$ref": "#/$defs/nullableDigest" },
+            "mail_mode": { "enum": ["private", "external"] },
+            "mail_domain": { "type": "string" },
+            "mail_hostname": { "type": "string" },
+            "bounce_domain": { "type": "string" },
+            "production_mail_admin_subnet": { "type": "string" },
+            "stalwart_mail_admin_ip": { "type": "string" },
+            "mail_config_digest": { "$ref": "#/$defs/digest" },
+            "mail_evidence_digest": { "$ref": "#/$defs/nullableDigest" }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,60 @@
+# Non-secret, transactional-only Stalwart bootstrap template. Prompt 06 must
+# validate this against the exact pinned image before installing live secrets.
+
+[server]
+hostname = "@@MAIL_HOSTNAME@@"
+
+[server.listener.management]
+bind = ["@@STALWART_MAIL_ADMIN_IP@@:8080"]
+protocol = "http"
+
+[server.listener.submission]
+bind = ["0.0.0.0:587"]
+protocol = "smtp"
+
+[server.listener.smtp]
+bind = ["0.0.0.0:25"]
+protocol = "smtp"
+
+[server.listener.imaptls]
+bind = ["0.0.0.0:993"]
+protocol = "imap"
+tls.implicit = true
+
+[storage]
+data = "rocksdb"
+blob = "rocksdb"
+fts = "rocksdb"
+lookup = "rocksdb"
+directory = "internal"
+
+[store.rocksdb]
+type = "rocksdb"
+path = "/var/lib/stalwart/data"
+
+[queue]
+messages = 1000
+
+[queue.outbound]
+hostname = "@@MAIL_HOSTNAME@@"
+
+[session.rcpt]
+max-recipients = 25
+
+[session.data]
+max-messages = 10
+max-size = 26214400
+
+[authentication.fallback-admin]
+user = "disabled-after-bootstrap"
+
+[webhook.delivery-feedback]
+url = "http://production-api:3000/internal/mail/stalwart-events"
+key-file = "/run/secrets/production_stalwart_webhook_secret"
+timeout = "10s"
+throttle = "1s"
+
+[certificate.default]
+default = true
+cert = "/etc/stalwart/tls/fullchain.pem"
+private-key = "/etc/stalwart/tls/private-key.pem"

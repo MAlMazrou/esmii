@@ -1,0 +1,317 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - main
+  push:
+    branches:
+      - dev
+      - main
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+
+jobs:
+  quality:
+    name: Quality and policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.20.0
+          check-latest: false
+      - name: Enable the pinned package manager
+        run: corepack enable
+      - name: Install from the frozen lockfile
+        run: corepack pnpm install --frozen-lockfile
+      - name: Check formatting and lint
+        run: corepack pnpm lint
+      - name: Check types
+        run: corepack pnpm typecheck
+      - name: Run unit and package tests
+        run: corepack pnpm test
+      - name: Scan committed files for secrets
+        run: corepack pnpm scan:secrets
+      - name: Enforce repository and branch policy
+        run: corepack pnpm test:policy
+      - name: Test runtime configuration isolation
+        run: corepack pnpm test:runtime-config
+      - name: Build the workspace
+        run: corepack pnpm build
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+
+  integration:
+    name: Integration and migrations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.20.0
+          check-latest: false
+      - name: Enable the pinned package manager
+        run: corepack enable
+      - name: Install from the frozen lockfile
+        run: corepack pnpm install --frozen-lockfile
+      - name: Run dependency integration tests
+        run: corepack pnpm test:integration
+      - name: Test migrations, database roles, and Valkey ACLs
+        run: corepack pnpm db:migrate:test
+
+  compose:
+    name: Development Compose policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.20.0
+          check-latest: false
+      - name: Enable the pinned package manager
+        run: corepack enable
+      - name: Install from the frozen lockfile
+        run: corepack pnpm install --frozen-lockfile
+      - name: Render the base and development overlays
+        run: corepack pnpm infra:config
+
+  host-infrastructure:
+    name: Prompt 04 host infrastructure
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.20.0
+          check-latest: false
+      - name: Enable the pinned package manager
+        run: corepack enable
+      - name: Install from the frozen lockfile
+        run: corepack pnpm install --frozen-lockfile
+      - name: Install pinned Ansible control tooling
+        run: |
+          python3 -m venv .local/prompt04/ansible-venv
+          .local/prompt04/ansible-venv/bin/pip install -r infra/ansible/requirements-control.txt
+          .local/prompt04/ansible-venv/bin/ansible-galaxy collection install -r infra/ansible/requirements.yml -p .local/prompt04/ansible/collections
+      - name: Validate Ansible syntax, lint, and disposable check mode
+        env:
+          ANSIBLE_CONFIG: infra/ansible/ansible.cfg
+          XDG_CACHE_HOME: .local/prompt04/cache
+        run: |
+          install -d -m 0700 /tmp/esmii-prompt04-ansible
+          .local/prompt04/ansible-venv/bin/ansible-playbook --syntax-check -i infra/ansible/inventories/local/hosts.example.yml infra/ansible/playbooks/vps.yaml
+          .local/prompt04/ansible-venv/bin/ansible-lint infra/ansible
+          .local/prompt04/ansible-venv/bin/ansible-playbook --check --diff -i infra/ansible/inventories/local/hosts.example.yml infra/ansible/playbooks/vps.yaml
+      - name: Validate source templates and deterministic payload
+        run: |
+          corepack pnpm infra:validate-templates
+          corepack pnpm infra:verify-shared-payload
+          corepack pnpm test:infra
+      - name: Render and validate all sealed host fixtures
+        run: |
+          corepack pnpm infra:test-render -- --fixture staging
+          corepack pnpm infra:test-render -- --fixture production-restricted
+          corepack pnpm infra:test-render -- --fixture production-public
+          corepack pnpm infra:test-caddy -- --fixture staging
+          corepack pnpm infra:test-caddy -- --fixture production-restricted
+          corepack pnpm infra:test-caddy -- --fixture production-public
+
+  images:
+    name: Build, inspect, scan, and inventory images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      ESMII_IMAGE_REVISION: ${{ github.sha }}
+      ESMII_IMAGE_SOURCE: ${{ github.server_url }}/${{ github.repository }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.20.0
+          check-latest: false
+      - name: Enable the pinned package manager
+        run: corepack enable
+      - name: Install from the frozen lockfile
+        run: corepack pnpm install --frozen-lockfile
+      - name: Build environment-neutral images
+        run: corepack pnpm image:build
+      - name: Inspect runtime users and embedded sentinels
+        run: corepack pnpm image:scan
+      - name: Run dual-runtime fixtures against the exact image identities
+        run: corepack pnpm image:runtime-fixtures
+      - name: Scan the web image for high and critical vulnerabilities
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: esmii/web:prompt02
+          format: table
+          exit-code: "1"
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+      - name: Scan the server image for high and critical vulnerabilities
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: esmii/server:prompt02
+          format: table
+          exit-code: "1"
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+      - name: Generate the web SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: esmii/web:prompt02
+          format: spdx-json
+          output-file: sbom-web.spdx.json
+          upload-artifact: false
+      - name: Generate the server SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: esmii/server:prompt02
+          format: spdx-json
+          output-file: sbom-server.spdx.json
+          upload-artifact: false
+      - name: Upload SBOMs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: prompt-02-sboms
+          path: sbom-*.spdx.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish immutable dev candidate images
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SERVER_IMAGE: ghcr.io/malmazrou/esmii-server:sha-${{ github.sha }}
+          WEB_IMAGE: ghcr.io/malmazrou/esmii-web:sha-${{ github.sha }}
+        run: |
+          printf '%s' "${GHCR_TOKEN}" | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+          docker tag esmii/web:prompt02 "${WEB_IMAGE}"
+          docker tag esmii/server:prompt02 "${SERVER_IMAGE}"
+          docker push "${WEB_IMAGE}"
+          docker push "${SERVER_IMAGE}"
+
+  end-to-end:
+    name: End-to-end smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.20.0
+          check-latest: false
+      - name: Enable the pinned package manager
+        run: corepack enable
+      - name: Install from the frozen lockfile
+        run: corepack pnpm install --frozen-lockfile
+      - name: Install the pinned Playwright browser
+        run: corepack pnpm exec playwright install --with-deps chromium
+      - name: Start the disposable development stack
+        run: corepack pnpm infra:up
+      - name: Run the browser smoke test
+        run: corepack pnpm test:e2e
+      - name: Stop the development stack without deleting volumes
+        if: always()
+        run: corepack pnpm infra:down
+
+  publish-staging:
+    name: Publish verified dev candidate for staging
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    needs:
+      - quality
+      - integration
+      - compose
+      - host-infrastructure
+      - images
+      - end-to-end
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: staging
+      url: https://staging.esmii.app
+    permissions:
+      contents: read
+      deployments: write
+      packages: write
+    steps:
+      - name: Authenticate to GHCR
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "${GHCR_TOKEN}" | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+      - name: Advance only the staging dev tags
+        env:
+          SERVER_CANDIDATE: ghcr.io/malmazrou/esmii-server:sha-${{ github.sha }}
+          SERVER_STAGING: ghcr.io/malmazrou/esmii-server:dev
+          WEB_CANDIDATE: ghcr.io/malmazrou/esmii-web:sha-${{ github.sha }}
+          WEB_STAGING: ghcr.io/malmazrou/esmii-web:dev
+        run: |
+          docker buildx imagetools create --tag "${WEB_STAGING}" "${WEB_CANDIDATE}"
+          docker buildx imagetools create --tag "${SERVER_STAGING}" "${SERVER_CANDIDATE}"
+          docker buildx imagetools inspect "${WEB_STAGING}"
+          docker buildx imagetools inspect "${SERVER_STAGING}"

@@ -1,0 +1,52 @@
+:80 {
+	encode zstd gzip
+
+	@action_routes path /api/auth /api/auth/* /api/invitation /api/invitation/*
+	log {
+		output stdout
+		format json
+	}
+	log_skip @action_routes
+
+	header {
+		-Server
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+
+	header @action_routes {
+		Referrer-Policy "no-referrer"
+		Cache-Control "no-store"
+		X-Robots-Tag "noindex, nofollow, noarchive"
+	}
+
+	handle /api/health/dependencies {
+		# Docker presents host-loopback traffic to Caddy through this bridge's
+		# fixed gateway. The host port itself is bound only to 127.0.0.1.
+		@health_from_loopback remote_ip 127.0.0.1 ::1 172.31.240.1
+		handle @health_from_loopback {
+			reverse_proxy development-api:3000
+		}
+		respond 404
+	}
+
+	handle /media/* {
+		@hidden_media path_regexp hidden_media `(?i)(^|/)\.`
+		respond @hidden_media 404
+
+		@valid_media path_regexp valid_media `^/media/[0-9a-f]{2}/[0-9a-f]{2}/[0-9a-f]{64}-v1-[0-9]{1,5}x[0-9]{1,5}\.(avif|webp|jpe?g|png)$`
+		handle @valid_media {
+			uri strip_prefix /media
+			root * /srv/development-public-media
+			header Cache-Control "public, max-age=31536000, immutable"
+			file_server
+		}
+
+		respond 404
+	}
+
+	@backend path /api /api/* /socket.io /socket.io/*
+	reverse_proxy @backend development-api:3000
+	reverse_proxy development-web:3000
+}

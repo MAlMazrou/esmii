@@ -1,0 +1,57 @@
+---
+- name: Record the sealed deployment-controller plan in disposable validation mode
+  ansible.builtin.copy:
+    content: "root wrappers only; reconciler unprivileged; fixed inbox, policy, socket, overlays and subcommands\n"
+    dest: "{{ esmii_target_root }}/deployment.plan"
+    mode: "0600"
+  when: esmii_test_mode | bool
+
+- name: Install the root-owned host controller
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../libexec/esmii_host_control.py"
+    dest: /usr/local/libexec/esmii/esmii_host_control.py
+    owner: root
+    group: root
+    mode: "0755"
+  when: not esmii_test_mode | bool
+
+- name: Install fixed deployment and backup entrypoints
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "/usr/local/libexec/esmii/{{ item }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - esmii-backup
+    - esmii-restore-check
+    - esmii-reconciler
+    - esmii-alert-failure
+    - esmii-checkpoint
+  when: not esmii_test_mode | bool
+
+- name: Install fixed root command links
+  ansible.builtin.file:
+    src: /usr/local/libexec/esmii/esmii_host_control.py
+    dest: "/usr/local/sbin/{{ item }}"
+    state: link
+    owner: root
+    group: root
+    force: true
+  loop:
+    - esmii-install-release
+    - esmii-activate-release
+    - esmii-host-compose
+    - esmii-staging-policy-controller
+    - esmii-rollback
+  when: not esmii_test_mode | bool
+
+- name: Install the reconciler sudo boundary
+  ansible.builtin.copy:
+    src: esmii-reconciler.sudoers
+    dest: /etc/sudoers.d/esmii-reconciler
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+  when: not esmii_test_mode | bool

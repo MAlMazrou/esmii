@@ -1,0 +1,34 @@
+---
+- name: Prepare the Esmii host baseline
+  hosts: all
+  gather_facts: true
+  become: "{{ not esmii_test_mode | bool }}"
+  pre_tasks:
+    - name: Verify the disposable target flag is explicit
+      ansible.builtin.assert:
+        that:
+          - not esmii_test_mode | bool or esmii_target_root | length > 10
+        fail_msg: Test mode requires a bounded esmii_target_root.
+
+    - name: Verify target identity before real host changes
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == esmii_expected_distribution
+          - ansible_distribution_major_version == esmii_expected_major_version
+          - ansible_architecture == esmii_expected_architecture
+          - esmii_target_server_confirmed_empty | default(false) | bool
+          - esmii_console_recovery_confirmed | default(false) | bool
+        fail_msg: The reviewed Ubuntu 26.04 x86-64 empty-host and console gates are not satisfied.
+      when: not esmii_test_mode | bool
+
+  roles:
+    - role: baseline
+    - role: users
+    - role: wireguard
+    - role: ssh
+    - role: firewall
+    - role: docker
+    - role: directories
+    - role: deployment
+    - role: systemd
+    - role: verification

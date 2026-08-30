@@ -1,0 +1,54 @@
+@@PRODUCTION_APP_DOMAIN@@ {
+	encode zstd gzip
+
+	@prelaunch_denied not remote_ip @@PRODUCTION_PRELAUNCH_TEST_CIDRS@@
+	respond @prelaunch_denied 403
+
+	log {
+		output stdout
+		format json
+	}
+
+	header {
+		-Server
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+
+	@action_routes path /api/auth /api/auth/* /api/invitation /api/invitation/*
+	header @action_routes {
+		Referrer-Policy "no-referrer"
+		Cache-Control "no-store"
+		X-Robots-Tag "noindex, nofollow, noarchive"
+	}
+	log_skip @action_routes
+	@query_request expression {query} != ""
+	log_skip @query_request
+
+	handle /api/health/dependencies {
+		@health_admin remote_ip @@PRODUCTION_ADMIN_HEALTH_CIDRS@@
+		handle @health_admin {
+			reverse_proxy production-api:3000
+		}
+		respond 404
+	}
+
+	handle /media/* {
+		@hidden_media path_regexp hidden_media `(?i)(^|/)\.`
+		respond @hidden_media 404
+
+		@valid_media path_regexp valid_media `^/media/[0-9a-f]{2}/[0-9a-f]{2}/[0-9a-f]{64}-v1-[1-9][0-9]{0,4}x[1-9][0-9]{0,4}\.(avif|webp|jpe?g|png)$`
+		handle @valid_media {
+			uri strip_prefix /media
+			root * /srv/production-public-media
+			header Cache-Control "public, max-age=31536000, immutable"
+			file_server
+		}
+		respond 404
+	}
+
+	@backend path /api /api/* /socket.io /socket.io/*
+	reverse_proxy @backend production-api:3000
+	reverse_proxy production-web:3000
+}

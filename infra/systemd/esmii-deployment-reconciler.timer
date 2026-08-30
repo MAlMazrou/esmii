@@ -1,0 +1,12 @@
+[Unit]
+Description=Poll for approved Esmii staging releases
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=15s
+Unit=esmii-deployment-reconciler.service
+
+[Install]
+WantedBy=timers.target
+

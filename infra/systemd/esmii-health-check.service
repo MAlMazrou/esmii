@@ -1,0 +1,18 @@
+[Unit]
+Description=Esmii certificate, health, capacity, disk, OOM, and isolation checks
+After=docker.service systemd-tmpfiles-setup.service
+OnFailure=esmii-alert-failure@%n.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
+Environment=HOME=/var/empty
+ExecStart=/usr/local/libexec/esmii/esmii_host_control.py health
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/etc/myapp /srv/myapp/releases /var/lib/esmii
+TimeoutStartSec=90

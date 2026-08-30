@@ -1,0 +1,13 @@
+[Unit]
+Description=Run Esmii maintenance on the first Sunday monthly
+
+[Timer]
+OnCalendar=Sun *-*-1..7 14:00:00 UTC
+Persistent=true
+RandomizedDelaySec=15min
+AccuracySec=1min
+Unit=esmii-maintenance.service
+
+[Install]
+WantedBy=timers.target
+

@@ -1,0 +1,28 @@
+[Unit]
+Description=Esmii outbound staging deployment reconciler
+After=network-online.target systemd-tmpfiles-setup.service
+Wants=network-online.target
+OnFailure=esmii-alert-failure@%n.service
+
+[Service]
+Type=oneshot
+User=esmii-reconciler
+Group=esmii-reconciler
+Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
+Environment=HOME=/var/lib/esmii/reconciler
+Environment=DOCKER_HOST=
+Environment=DOCKER_CONTEXT=
+ExecStart=/usr/local/libexec/esmii/esmii-reconciler
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectHome=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+ReadOnlyPaths=/etc/myapp/deployment-policies
+ReadWritePaths=/var/lib/esmii/reconciler /srv/myapp/release-inbox
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictSUIDSGID=true
+TimeoutStartSec=90

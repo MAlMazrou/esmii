@@ -1,0 +1,16 @@
+.git
+.local
+.next
+coverage
+dist
+node_modules
+playwright-report
+test-results
+infra/release/fixtures/**
+# This source contains a reviewed multiline token and becomes valid YAML only
+# after the fixed Prompt 04 renderer resolves it.
+infra/compose.production.yaml
+
+# Preserve the reviewed documentation package verbatim.
+AGENTS.md
+docs/**

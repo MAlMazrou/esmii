@@ -1,0 +1,327 @@
+x-app-common: &app-common
+  init: true
+  read_only: true
+  user: "10001:10001"
+  tmpfs:
+    - /tmp:size=64m,noexec,nosuid,nodev
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  restart: unless-stopped
+  logging:
+    driver: local
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  caddy:
+    ports: !override
+      - name: development-http
+        target: 80
+        published: "${ESMII_DEVELOPMENT_EDGE_PORT:-8080}"
+        host_ip: 127.0.0.1
+        protocol: tcp
+        app_protocol: http
+    networks:
+      - development-edge
+    volumes:
+      - ./caddy/sites/development.caddy:/etc/caddy/sites-enabled/development.caddy:ro
+      - development-public-media:/srv/development-public-media:ro
+    depends_on:
+      development-api:
+        condition: service_healthy
+      development-web:
+        condition: service_healthy
+
+  development-web:
+    <<: *app-common
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    command: ["node", "apps/web/server.js"]
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+    expose:
+      - "3000"
+    networks:
+      - development-edge
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));"
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 12
+    mem_limit: 256m
+    pids_limit: 128
+
+  development-api:
+    <<: *app-common
+    image: esmii/server:prompt03
+    build:
+      context: ..
+      dockerfile: apps/server/Dockerfile
+    command: ["node", "dist/entrypoints/http.js"]
+    environment:
+      NODE_ENV: production
+      APP_ENV: development
+      HOST: 0.0.0.0
+      PORT: "3000"
+      APP_DATABASE_URL_FILE: /run/secrets/development_api_database_url
+      APP_VALKEY_URL_FILE: /run/secrets/development_api_valkey_url
+      APP_PUBLIC_ORIGIN: http://localhost:8080
+      AUTH_MOCK_PROVIDERS: "true"
+      BETTER_AUTH_SECRET_FILE: /run/secrets/development_better_auth_secret
+      OPERATIONS_HEALTH_TOKEN_FILE: /run/secrets/development_operations_health_token
+      SECURITY_TOMBSTONE_MODE: capture
+      MEDIA_ROOT: /srv/media
+    secrets:
+      - development_api_database_url
+      - development_api_valkey_url
+      - development_better_auth_secret
+      - development_operations_health_token
+    volumes:
+      - development-private-incoming:/srv/media/private/incoming
+      - development-private-originals:/srv/media/private/originals:ro
+      - development-private-variants:/srv/media/private/variants:ro
+      - development-public-media:/srv/media/public/variants:ro
+    expose:
+      - "3000"
+    networks:
+      development-edge:
+        gw_priority: 1
+      development-data:
+      development-storage:
+    depends_on:
+      development-migrate:
+        condition: service_completed_successfully
+      development-postgres:
+        condition: service_healthy
+      development-valkey:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "dist/healthcheck.js"]
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 12
+    stop_grace_period: 30s
+    mem_limit: 256m
+    pids_limit: 256
+
+  development-worker:
+    <<: *app-common
+    image: esmii/server:prompt03
+    command: ["node", "dist/entrypoints/worker.js"]
+    environment:
+      NODE_ENV: production
+      APP_ENV: development
+      APP_DATABASE_URL_FILE: /run/secrets/development_worker_database_url
+      APP_VALKEY_URL_FILE: /run/secrets/development_worker_valkey_url
+      ACTION_LINK_DERIVATION_KEYRING_FILE: /run/secrets/development_action_link_derivation_keyring
+      APP_PUBLIC_ORIGIN: http://localhost:8080
+      SMTP_URL: smtp://development-mailpit:1025
+      MEDIA_ROOT: /srv/media
+      JOB_CONCURRENCY: "1"
+      PGBOSS_CREATE_SCHEMA: "false"
+      PGBOSS_MIGRATE: "false"
+    secrets:
+      - development_worker_database_url
+      - development_worker_valkey_url
+      - development_action_link_derivation_keyring
+    volumes:
+      - development-private-incoming:/srv/media/private/incoming
+      - development-private-originals:/srv/media/private/originals
+      - development-private-trash:/srv/media/private/trash
+      - development-private-variants:/srv/media/private/variants
+      - development-public-media:/srv/media/public/variants:ro
+    networks:
+      - development-data
+      - development-storage
+      - development-mail
+    depends_on:
+      development-migrate:
+        condition: service_completed_successfully
+      development-postgres:
+        condition: service_healthy
+      development-valkey:
+        condition: service_healthy
+      development-mailpit:
+        condition: service_started
+    stop_grace_period: 60s
+    mem_limit: 192m
+    pids_limit: 256
+
+  development-migrate:
+    <<: *app-common
+    restart: "no"
+    image: esmii/server:prompt03
+    command: ["node", "dist/entrypoints/migrate.js"]
+    environment:
+      NODE_ENV: production
+      APP_ENV: development
+      APP_DATABASE_URL_FILE: /run/secrets/development_migration_database_url
+    secrets:
+      - development_migration_database_url
+    networks:
+      - development-data
+    depends_on:
+      development-postgres:
+        condition: service_healthy
+    mem_limit: 192m
+    pids_limit: 128
+
+  development-postgres:
+    image: postgres:18.6-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: esmii
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/development_postgres_superuser_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=trust --data-checksums
+    secrets:
+      - development_postgres_superuser_password
+      - development_postgres_migration_password
+      - development_postgres_api_password
+      - development_postgres_worker_password
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+    volumes:
+      - development-postgres-data:/var/lib/postgresql
+      - ./postgres/development.conf:/etc/postgresql/postgresql.conf:ro
+      - ./postgres/init-development.sh:/docker-entrypoint-initdb.d/010-development-roles.sh:ro
+    networks:
+      - development-data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d esmii"]
+      interval: 5s
+      timeout: 5s
+      start_period: 10s
+      retries: 20
+    stop_grace_period: 60s
+    mem_limit: 384m
+    pids_limit: 256
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  development-valkey:
+    image: valkey/valkey:9.1.1-alpine
+    restart: unless-stopped
+    command: ["valkey-server", "/etc/valkey/valkey.conf"]
+    secrets:
+      - development_valkey_users_acl
+      - development_valkey_health_password
+    volumes:
+      - ./valkey/development.conf:/etc/valkey/valkey.conf:ro
+    networks:
+      - development-data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'VALKEYCLI_AUTH="$$(cat /run/secrets/development_valkey_health_password)" valkey-cli --user health ping | grep -q PONG'
+      interval: 5s
+      timeout: 3s
+      start_period: 5s
+      retries: 20
+    mem_limit: 128m
+    pids_limit: 128
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  development-mailpit:
+    image: axllent/mailpit:v1.30.0
+    restart: unless-stopped
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      MP_MAX_MESSAGES: "500"
+      MP_SMTP_AUTH_ACCEPT_ANY: "0"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "0"
+    ports:
+      - name: development-mailpit-ui
+        target: 8025
+        published: "${ESMII_DEVELOPMENT_MAILPIT_PORT:-8025}"
+        host_ip: 127.0.0.1
+        protocol: tcp
+        app_protocol: http
+    expose:
+      - "1025"
+    volumes:
+      - development-mailpit-data:/data
+    networks:
+      - development-mail
+      - development-operator
+    mem_limit: 128m
+    pids_limit: 128
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  development-edge:
+    ipam:
+      config:
+        - subnet: 172.31.240.0/24
+  development-data:
+    internal: true
+  development-storage:
+    internal: true
+  development-mail:
+    internal: true
+  development-operator:
+
+volumes:
+  development-postgres-data:
+  development-mailpit-data:
+  development-private-incoming:
+  development-private-originals:
+  development-private-trash:
+  development-private-variants:
+  development-public-media:
+
+secrets:
+  development_postgres_superuser_password:
+    file: ../.local/development/secrets/postgres-superuser-password
+  development_postgres_migration_password:
+    file: ../.local/development/secrets/postgres-migration-password
+  development_postgres_api_password:
+    file: ../.local/development/secrets/postgres-api-password
+  development_postgres_worker_password:
+    file: ../.local/development/secrets/postgres-worker-password
+  development_migration_database_url:
+    file: ../.local/development/secrets/database-migration-url
+  development_api_database_url:
+    file: ../.local/development/secrets/database-api-url
+  development_worker_database_url:
+    file: ../.local/development/secrets/database-worker-url
+  development_valkey_users_acl:
+    file: ../.local/development/secrets/valkey-users.acl
+  development_valkey_health_password:
+    file: ../.local/development/secrets/valkey-health-password
+  development_api_valkey_url:
+    file: ../.local/development/secrets/valkey-api-url
+  development_worker_valkey_url:
+    file: ../.local/development/secrets/valkey-worker-url
+  development_operations_health_token:
+    file: ../.local/development/secrets/operations-token
+  development_better_auth_secret:
+    file: ../.local/development/secrets/better-auth-secret
+  development_action_link_derivation_keyring:
+    file: ../.local/development/secrets/action-link-derivation-keyring
