@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+exec /usr/local/libexec/esmii/esmii_host_control.py backup "$@"
+

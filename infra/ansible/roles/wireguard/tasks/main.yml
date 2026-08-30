@@ -1,0 +1,170 @@
+---
+- name: Record the administrator WireGuard plan in disposable validation mode
+  ansible.builtin.copy:
+    content: |
+      enabled={{ esmii_enable_wireguard | default(false) | bool }}
+      interface={{ esmii_wireguard_interface | default('wg0') }}
+      listen-port={{ esmii_wireguard_listen_port | default(51820) }}
+      server={{ esmii_wireguard_server_address | default('<WIREGUARD_SERVER_CIDR>') }}
+      admin={{ esmii_wireguard_admin_address | default('<WIREGUARD_ADMIN_CIDR>') }}
+    dest: "{{ esmii_target_root }}/wireguard.plan"
+    mode: "0600"
+  when: esmii_test_mode | bool
+
+- name: Validate the administrator WireGuard inputs
+  ansible.builtin.assert:
+    that:
+      - esmii_wireguard_interface is match('^[a-zA-Z0-9_.-]{1,15}$')
+      - esmii_wireguard_listen_port | int >= 1024
+      - esmii_wireguard_listen_port | int <= 65535
+      - esmii_wireguard_server_address | length > 0
+      - "'/' in esmii_wireguard_server_address"
+      - esmii_wireguard_admin_address | length > 0
+      - "'/' in esmii_wireguard_admin_address"
+      - esmii_wireguard_server_private_key_file | length > 0
+      - esmii_wireguard_admin_public_key is match('^[A-Za-z0-9+/]{43}=$')
+    fail_msg: WireGuard requires reviewed interface, port, addresses, controller-private-key path, and admin public key values.
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_wireguard | default(false) | bool
+
+- name: Inspect the ignored controller-side WireGuard server private key
+  ansible.builtin.stat:
+    path: "{{ esmii_wireguard_server_private_key_file }}"
+  delegate_to: localhost
+  become: false
+  register: wireguard_controller_private_key
+  no_log: true
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_wireguard | default(false) | bool
+
+- name: Require a protected ignored controller-side WireGuard server private key
+  ansible.builtin.assert:
+    that:
+      - wireguard_controller_private_key.stat.exists
+      - wireguard_controller_private_key.stat.isreg
+      - wireguard_controller_private_key.stat.mode in ['0400', '0600']
+    fail_msg: The ignored WireGuard server private key must be a regular controller file with mode 0400 or 0600.
+  no_log: true
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_wireguard | default(false) | bool
+
+- name: Install WireGuard tools from the reviewed Ubuntu repository
+  ansible.builtin.apt:
+    name: wireguard-tools
+    state: present
+    update_cache: true
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_wireguard | default(false) | bool
+
+- name: Inspect the WireGuard configuration directory
+  ansible.builtin.stat:
+    path: /etc/wireguard
+  register: wireguard_configuration_directory_before
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_wireguard | default(false) | bool
+
+- name: Create the protected WireGuard configuration directory
+  ansible.builtin.file:
+    path: /etc/wireguard
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_wireguard | default(false) | bool
+
+- name: Inspect the WireGuard validator before its package-independent install
+  ansible.builtin.stat:
+    path: /usr/local/sbin/esmii-validate-wireguard-config
+  register: wireguard_validator_before
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_wireguard | default(false) | bool
+
+- name: Install the isolated WireGuard configuration validator
+  ansible.builtin.copy:
+    src: esmii-validate-wireguard-config
+    dest: /usr/local/sbin/esmii-validate-wireguard-config
+    owner: root
+    group: root
+    mode: "0755"
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_wireguard | default(false) | bool
+
+- name: Inspect the WireGuard configuration before rendering
+  ansible.builtin.stat:
+    path: "/etc/wireguard/{{ esmii_wireguard_interface }}.conf"
+  register: wireguard_configuration_before
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_wireguard | default(false) | bool
+
+- name: Install the root-only WireGuard administrator configuration
+  ansible.builtin.template:
+    src: wg.conf.j2
+    dest: "/etc/wireguard/{{ esmii_wireguard_interface }}.conf"
+    owner: root
+    group: root
+    mode: "0600"
+    validate: /usr/local/sbin/esmii-validate-wireguard-config %s
+  notify: Restart WireGuard
+  no_log: true
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_wireguard | default(false) | bool
+    - >-
+      not ansible_check_mode or
+      (wireguard_configuration_directory_before.stat.exists and
+      wireguard_validator_before.stat.exists)
+
+- name: Record the deferred WireGuard configuration during first-host check mode
+  ansible.builtin.debug:
+    msg: The reviewed root-only WireGuard configuration will be installed after the package creates its configuration directory.
+  changed_when: true
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_wireguard | default(false) | bool
+    - ansible_check_mode
+    - >-
+      not wireguard_configuration_directory_before.stat.exists or
+      not wireguard_validator_before.stat.exists
+
+- name: Inspect the WireGuard systemd unit after the package step
+  ansible.builtin.stat:
+    path: /usr/lib/systemd/system/wg-quick@.service
+  register: wireguard_systemd_unit
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_wireguard | default(false) | bool
+
+- name: Enable and start only the reviewed WireGuard interface
+  ansible.builtin.systemd_service:
+    name: "wg-quick@{{ esmii_wireguard_interface }}.service"
+    enabled: true
+    state: started
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_wireguard | default(false) | bool
+    - >-
+      not ansible_check_mode or
+      (wireguard_systemd_unit.stat.exists and
+      wireguard_configuration_before.stat.exists)
+
+- name: Record the deferred WireGuard service start during first-host check mode
+  ansible.builtin.debug:
+    msg: The reviewed WireGuard interface will be enabled and started after wireguard-tools is installed.
+  changed_when: true
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_wireguard | default(false) | bool
+    - ansible_check_mode
+    - >-
+      not wireguard_systemd_unit.stat.exists or
+      not wireguard_configuration_before.stat.exists

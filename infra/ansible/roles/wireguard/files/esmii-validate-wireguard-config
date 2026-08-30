@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+candidate=${1:?WireGuard candidate path is required}
+validation_root=$(/usr/bin/mktemp -d /etc/wireguard/esmii-validate.XXXXXX)
+
+cleanup() {
+  /usr/bin/rm -rf -- "$validation_root"
+}
+
+trap cleanup EXIT HUP INT TERM
+/usr/bin/cp -- "$candidate" "$validation_root/wg0.conf"
+/usr/bin/chmod 0600 "$validation_root/wg0.conf"
+/usr/bin/wg-quick strip "$validation_root/wg0.conf" >/dev/null

@@ -1,0 +1,43 @@
+services:
+  production-worker:
+    environment:
+      SMTP_URL: smtp://production-mailpit:1025
+    depends_on:
+      production-postgres:
+        condition: service_healthy
+      production-valkey:
+        condition: service_healthy
+      production-mailpit:
+        condition: service_started
+    networks:
+      - production-mail-capture
+
+  production-mailpit:
+    image: axllent/mailpit:v1.30.0@sha256:0059ef81e492a7192af3816281eed6859eb078bd7bdc58b76757c13e10e53a7d
+    restart: unless-stopped
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      MP_MAX_MESSAGES: "500"
+      MP_SMTP_AUTH_ACCEPT_ANY: "0"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "0"
+    expose:
+      - "1025"
+      - "8025"
+    volumes:
+      - production-mailpit-data:/data
+    networks:
+      - production-mail-capture
+    mem_limit: 128m
+    pids_limit: 128
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  production-mail-capture:
+    internal: true
+
+volumes:
+  production-mailpit-data:

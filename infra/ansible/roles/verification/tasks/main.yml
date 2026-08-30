@@ -1,0 +1,23 @@
+---
+- name: Verify disposable validation artifacts exist
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ esmii_target_root }}/baseline.plan"
+    - "{{ esmii_target_root }}/users.plan"
+    - "{{ esmii_target_root }}/wireguard.plan"
+    - "{{ esmii_target_root }}/ssh.plan"
+    - "{{ esmii_target_root }}/firewall.plan"
+    - "{{ esmii_target_root }}/docker-daemon.json"
+    - "{{ esmii_target_root }}/directories.plan.json"
+    - "{{ esmii_target_root }}/deployment.plan"
+    - "{{ esmii_target_root }}/systemd.plan"
+  register: verification_artifacts
+  when: esmii_test_mode | bool
+
+- name: Assert every disposable validation artifact was planned
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists or ansible_check_mode
+  loop: "{{ verification_artifacts.results }}"
+  when: esmii_test_mode | bool

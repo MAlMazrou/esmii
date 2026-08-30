@@ -1,0 +1,30 @@
+---
+- name: Record the SSH hardening plan in disposable validation mode
+  ansible.builtin.copy:
+    content: "root=no password=no keyboard-interactive=no admin-CIDR-only; requires second session and console\n"
+    dest: "{{ esmii_target_root }}/ssh.plan"
+    mode: "0600"
+  when: esmii_test_mode | bool
+
+- name: Require both recovery paths before SSH lock-down
+  ansible.builtin.assert:
+    that:
+      - esmii_second_session_confirmed | bool
+      - esmii_console_recovery_confirmed | bool
+    fail_msg: Keep current SSH policy until a second keyed sudo session and SCP console recovery both pass.
+  when:
+    - not esmii_test_mode | bool
+    - esmii_disable_ssh_passwords | bool
+
+- name: Install the Esmii OpenSSH policy drop-in
+  ansible.builtin.template:
+    src: 60-esmii.conf.j2
+    dest: /etc/ssh/sshd_config.d/60-esmii.conf
+    owner: root
+    group: root
+    mode: "0600"
+    validate: /usr/sbin/sshd -t -f %s
+  notify: Reload OpenSSH
+  when:
+    - not esmii_test_mode | bool
+    - esmii_disable_ssh_passwords | bool

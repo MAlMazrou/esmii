@@ -1,0 +1,21 @@
+---
+esmii_slug: esmii
+esmii_compose_minimum_version: 2.33.1
+esmii_expected_architecture: x86_64
+esmii_expected_distribution: Ubuntu
+esmii_expected_major_version: "26"
+esmii_swap_size_mb: 2048
+esmii_enable_operator_passwordless_sudo: false
+esmii_operator_key_session_confirmed: false
+esmii_enable_wireguard: false
+esmii_wireguard_interface: wg0
+esmii_wireguard_listen_port: 51820
+esmii_wireguard_server_address: ""
+esmii_wireguard_admin_address: ""
+esmii_wireguard_server_private_key_file: ""
+esmii_wireguard_admin_public_key: ""
+esmii_disable_ssh_passwords: true
+esmii_enable_host_firewall: true
+esmii_enable_prompt05_timers: false
+esmii_enable_prompt06_timers: false
+esmii_packages: []

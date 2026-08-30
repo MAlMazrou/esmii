@@ -1,0 +1,133 @@
+---
+- name: Record the baseline plan in disposable validation mode
+  ansible.builtin.copy:
+    content: "Ubuntu 26.04 baseline, UTC, unattended security updates, {{ esmii_swap_size_mb }} MiB swap\n"
+    dest: "{{ esmii_target_root }}/baseline.plan"
+    mode: "0600"
+  when: esmii_test_mode | bool
+
+- name: Install the reviewed baseline packages
+  ansible.builtin.apt:
+    name: "{{ esmii_packages }}"
+    state: present
+    update_cache: true
+  when: not esmii_test_mode | bool
+
+- name: Apply all available Ubuntu package updates
+  ansible.builtin.apt:
+    upgrade: dist
+  when: not esmii_test_mode | bool
+
+- name: Keep the host clock in UTC
+  community.general.timezone:
+    name: Etc/UTC
+  when: not esmii_test_mode | bool
+
+- name: Inspect the emergency swap file
+  ansible.builtin.stat:
+    path: /swapfile
+  register: baseline_swapfile_before
+  when: not esmii_test_mode | bool
+
+- name: Allocate emergency swap without enabling it in check mode
+  ansible.builtin.command:
+    cmd: "fallocate -l {{ esmii_swap_size_mb }}M /swapfile"
+    creates: /swapfile
+  when:
+    - not esmii_test_mode | bool
+    - not baseline_swapfile_before.stat.exists
+
+- name: Inspect the emergency swap file after allocation
+  ansible.builtin.stat:
+    path: /swapfile
+  register: baseline_swapfile_after
+  when: not esmii_test_mode | bool
+
+- name: Protect the emergency swap file
+  ansible.builtin.file:
+    path: /swapfile
+    owner: root
+    group: root
+    mode: "0600"
+    state: file
+  when:
+    - not esmii_test_mode | bool
+    - baseline_swapfile_after.stat.exists
+
+- name: Record the planned swap permissions during first-host check mode
+  ansible.builtin.debug:
+    msg: /swapfile will be root-owned with mode 0600 after allocation.
+  changed_when: true
+  when:
+    - not esmii_test_mode | bool
+    - ansible_check_mode
+    - not baseline_swapfile_after.stat.exists
+
+- name: Inspect the emergency swap signature
+  ansible.builtin.command:
+    cmd: blkid -o value -s TYPE /swapfile
+  check_mode: false
+  changed_when: false
+  failed_when: false
+  register: baseline_swap_signature
+  when:
+    - not esmii_test_mode | bool
+    - baseline_swapfile_after.stat.exists
+
+- name: Format emergency swap once
+  ansible.builtin.command:
+    cmd: mkswap /swapfile
+  changed_when: true
+  when:
+    - not esmii_test_mode | bool
+    - not ansible_check_mode
+    - baseline_swapfile_after.stat.exists
+    - baseline_swap_signature.stdout | default('') != 'swap'
+
+- name: Record the planned swap signature during first-host check mode
+  ansible.builtin.debug:
+    msg: /swapfile will be formatted as swap after allocation.
+  changed_when: true
+  when:
+    - not esmii_test_mode | bool
+    - ansible_check_mode
+    - not baseline_swapfile_after.stat.exists or baseline_swap_signature.stdout | default('') != 'swap'
+
+- name: Persist emergency swap
+  ansible.posix.mount:
+    path: none
+    src: /swapfile
+    fstype: swap
+    opts: sw
+    state: present
+  when:
+    - not esmii_test_mode | bool
+    - baseline_swapfile_after.stat.exists
+
+- name: Record the planned persistent swap entry during first-host check mode
+  ansible.builtin.debug:
+    msg: /swapfile will be persisted in fstab after allocation.
+  changed_when: true
+  when:
+    - not esmii_test_mode | bool
+    - ansible_check_mode
+    - not baseline_swapfile_after.stat.exists
+
+- name: Enable emergency swap
+  ansible.builtin.command:
+    cmd: swapon /swapfile
+  changed_when: true
+  when:
+    - not esmii_test_mode | bool
+    - not ansible_check_mode
+    - baseline_swapfile_after.stat.exists
+    - ansible_swaptotal_mb | int == 0
+
+- name: Record the planned swap activation during first-host check mode
+  ansible.builtin.debug:
+    msg: /swapfile will be activated after formatting.
+  changed_when: true
+  when:
+    - not esmii_test_mode | bool
+    - ansible_check_mode
+    - ansible_swaptotal_mb | int == 0

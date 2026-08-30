@@ -1,0 +1,88 @@
+---
+- name: Record the least-privilege user plan in disposable validation mode
+  ansible.builtin.copy:
+    content: |
+      operator={{ esmii_operator_name | default('<NAMED_OPERATOR>') }}
+      passwordless-sudo={{ esmii_enable_operator_passwordless_sudo | default(false) | bool }}
+      service-users=esmii-deploy,esmii-reconciler
+    dest: "{{ esmii_target_root }}/users.plan"
+    mode: "0600"
+  when: esmii_test_mode | bool
+
+- name: Read existing host accounts before planning users
+  ansible.builtin.getent:
+    database: passwd
+  when: not esmii_test_mode | bool
+
+- name: Create the named sudo operator
+  ansible.builtin.user:
+    name: "{{ esmii_operator_name }}"
+    groups: sudo
+    append: true
+    create_home: true
+    shell: /bin/bash
+  when: not esmii_test_mode | bool
+
+- name: Install the named operator key
+  ansible.posix.authorized_key:
+    user: "{{ esmii_operator_name }}"
+    key: "{{ esmii_operator_public_key }}"
+    exclusive: true
+    state: present
+  when:
+    - not esmii_test_mode | bool
+    - not ansible_check_mode or esmii_operator_name in ansible_facts.getent_passwd
+
+- name: Record the planned operator key during first-host check mode
+  ansible.builtin.debug:
+    msg: The reviewed ED25519 public key will be installed exclusively for the named operator.
+  changed_when: true
+  when:
+    - not esmii_test_mode | bool
+    - ansible_check_mode
+    - esmii_operator_name not in ansible_facts.getent_passwd
+
+- name: Require a proven keyed operator session before passwordless sudo
+  ansible.builtin.assert:
+    that:
+      - esmii_operator_key_session_confirmed | default(false) | bool
+    fail_msg: Passwordless sudo requires a separately proven keyed operator session.
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_operator_passwordless_sudo | default(false) | bool
+
+- name: Install the validated passwordless operator sudo policy
+  ansible.builtin.copy:
+    content: "{{ esmii_operator_name }} ALL=(ALL:ALL) NOPASSWD: ALL\n"
+    dest: /etc/sudoers.d/90-esmii-operator
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_operator_passwordless_sudo | default(false) | bool
+
+- name: Remove the passwordless operator sudo policy when disabled
+  ansible.builtin.file:
+    path: /etc/sudoers.d/90-esmii-operator
+    state: absent
+  when:
+    - not esmii_test_mode | bool
+    - not esmii_enable_operator_passwordless_sudo | default(false) | bool
+
+- name: Create the inbox-only deploy identity
+  ansible.builtin.user:
+    name: esmii-deploy
+    create_home: false
+    shell: /usr/sbin/nologin
+    system: true
+  when: not esmii_test_mode | bool
+
+- name: Create the unprivileged outbound reconciler identity
+  ansible.builtin.user:
+    name: esmii-reconciler
+    create_home: false
+    shell: /usr/sbin/nologin
+    system: true
+  when: not esmii_test_mode | bool

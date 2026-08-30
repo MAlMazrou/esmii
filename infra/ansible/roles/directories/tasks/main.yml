@@ -1,0 +1,157 @@
+---
+- name: Define the fixed Esmii host directories
+  ansible.builtin.set_fact:
+    directories_host_directories:
+      - path: /srv/myapp
+        owner: root
+        group: root
+        mode: "0755"
+      - path: /srv/myapp/release-inbox
+        owner: esmii-deploy
+        group: esmii-deploy
+        mode: "0700"
+      - path: /srv/myapp/releases
+        owner: root
+        group: root
+        mode: "0755"
+      - path: /srv/myapp/operation-recovery
+        owner: root
+        group: root
+        mode: "0700"
+      - path: /srv/myapp/staging/media/public/variants
+        owner: root
+        group: root
+        mode: "0755"
+      - path: /srv/myapp/staging/media/private/incoming
+        owner: "10001"
+        group: "10001"
+        mode: "0700"
+      - path: /srv/myapp/staging/media/private/originals
+        owner: "10001"
+        group: "10001"
+        mode: "0700"
+      - path: /srv/myapp/staging/media/private/variants
+        owner: "10001"
+        group: "10001"
+        mode: "0700"
+      - path: /srv/myapp/staging/media/private/trash
+        owner: "10001"
+        group: "10001"
+        mode: "0700"
+      - path: /srv/myapp/production/media/public/variants
+        owner: root
+        group: root
+        mode: "0755"
+      - path: /srv/myapp/production/media/private/incoming
+        owner: "10001"
+        group: "10001"
+        mode: "0700"
+      - path: /srv/myapp/production/media/private/originals
+        owner: "10001"
+        group: "10001"
+        mode: "0700"
+      - path: /srv/myapp/production/media/private/variants
+        owner: "10001"
+        group: "10001"
+        mode: "0700"
+      - path: /srv/myapp/production/media/private/trash
+        owner: "10001"
+        group: "10001"
+        mode: "0700"
+      - path: /srv/myapp/production/backup-staging
+        owner: root
+        group: root
+        mode: "0700"
+      - path: /srv/myapp/production/stalwart/config
+        owner: "2000"
+        group: "2000"
+        mode: "0700"
+      - path: /srv/myapp/production/stalwart/data
+        owner: "2000"
+        group: "2000"
+        mode: "0700"
+      - path: /etc/myapp/deployment-policies
+        owner: root
+        group: root
+        mode: "0700"
+      - path: /etc/myapp/approved-releases
+        owner: root
+        group: root
+        mode: "0700"
+      - path: /etc/myapp/secrets/staging
+        owner: root
+        group: root
+        mode: "0700"
+      - path: /etc/myapp/secrets/production
+        owner: root
+        group: root
+        mode: "0700"
+      - path: /usr/local/libexec/esmii
+        owner: root
+        group: root
+        mode: "0755"
+      - path: /var/lib/esmii/operations/archive
+        owner: root
+        group: root
+        mode: "0700"
+      - path: /var/lib/esmii/reconciler
+        owner: esmii-reconciler
+        group: esmii-reconciler
+        mode: "0700"
+
+- name: Create a bounded disposable validation root
+  ansible.builtin.file:
+    path: "{{ esmii_target_root }}"
+    state: directory
+    mode: "0700"
+  when: esmii_test_mode | bool
+
+- name: Record the directory contract in disposable validation mode
+  ansible.builtin.copy:
+    content: "{{ directories_host_directories | to_nice_json }}\n"
+    dest: "{{ esmii_target_root }}/directories.plan.json"
+    mode: "0600"
+  when: esmii_test_mode | bool
+
+- name: Create fixed host directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop: "{{ directories_host_directories }}"
+  when:
+    - not esmii_test_mode | bool
+    - >-
+      not ansible_check_mode or
+      item.owner not in ['esmii-deploy', 'esmii-reconciler', '10001', '2000'] or
+      item.owner in (ansible_facts.getent_passwd | default({}))
+
+- name: Record directories whose service owners are planned in check mode
+  ansible.builtin.debug:
+    msg: >-
+      {{ item.path }} will be created with owner {{ item.owner }}, group {{ item.group }},
+      and mode {{ item.mode }} after the service account exists.
+  loop: "{{ directories_host_directories }}"
+  changed_when: true
+  when:
+    - not esmii_test_mode | bool
+    - ansible_check_mode
+    - item.owner in ['esmii-deploy', 'esmii-reconciler', '10001', '2000']
+    - item.owner not in (ansible_facts.getent_passwd | default({}))
+
+- name: Install the ephemeral lock directory rule
+  ansible.builtin.copy:
+    src: esmii-locks.conf
+    dest: /etc/tmpfiles.d/esmii-locks.conf
+    owner: root
+    group: root
+    mode: "0644"
+  when: not esmii_test_mode | bool
+
+- name: Create the lock directory from tmpfiles policy
+  ansible.builtin.command:
+    cmd: systemd-tmpfiles --create /etc/tmpfiles.d/esmii-locks.conf
+  changed_when: false
+  when: not esmii_test_mode | bool

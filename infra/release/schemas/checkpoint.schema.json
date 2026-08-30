@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esmii.app/schemas/checkpoint.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "deployment_epoch",
+    "deployment_sequence",
+    "active_release_id",
+    "activation_manifest_digest",
+    "previous_checkpoint_digest",
+    "staging_policy_digest",
+    "deployment_id",
+    "change_targets",
+    "host_outcome_evidence_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "deployment_epoch": { "type": "string" },
+    "deployment_sequence": { "type": "integer", "minimum": 1 },
+    "active_release_id": { "type": "string" },
+    "activation_manifest_digest": { "$ref": "#/$defs/digest" },
+    "previous_checkpoint_digest": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/digest" }] },
+    "staging_policy_digest": { "$ref": "#/$defs/digest" },
+    "deployment_id": { "type": "string" },
+    "change_targets": { "type": "array" },
+    "host_outcome_evidence_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": { "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } }
+}

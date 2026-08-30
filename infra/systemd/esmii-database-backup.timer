@@ -1,0 +1,13 @@
+[Unit]
+Description=Run Esmii database backup every six hours
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:15:00 UTC
+Persistent=true
+RandomizedDelaySec=5min
+AccuracySec=1min
+Unit=esmii-database-backup.service
+
+[Install]
+WantedBy=timers.target
+

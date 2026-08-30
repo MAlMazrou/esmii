@@ -1,0 +1,17 @@
+[Unit]
+Description=Pull and activate the latest verified Esmii main candidate in production
+After=docker.service network-online.target esmii-staging-pull.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/esmii/esmii-production-pull
+TimeoutStartSec=20min
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+UMask=0077

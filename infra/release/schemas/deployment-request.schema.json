@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esmii.app/schemas/deployment-request.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "repository",
+    "branch",
+    "environment",
+    "deployment_epoch",
+    "deployment_sequence",
+    "previous_release_id",
+    "policy_digest",
+    "shared_infrastructure_payload_digest",
+    "active_compose_files",
+    "web_image",
+    "server_image",
+    "production",
+    "manifest_path",
+    "signature_path",
+    "provenance_path",
+    "provenance_signature_path"
+  ],
+  "properties": {
+    "repository": { "const": "malmazrou/esmii" },
+    "branch": { "const": "dev" },
+    "environment": { "const": "staging" },
+    "deployment_epoch": { "type": "string" },
+    "deployment_sequence": { "type": "integer", "minimum": 2 },
+    "previous_release_id": { "type": "string" },
+    "policy_digest": { "$ref": "#/$defs/digest" },
+    "shared_infrastructure_payload_digest": { "$ref": "#/$defs/digest" },
+    "active_compose_files": { "type": "array" },
+    "web_image": { "type": "string" },
+    "server_image": { "type": "string" },
+    "production": { "type": ["object", "null"] },
+    "manifest_path": { "type": "string" },
+    "signature_path": { "type": "string" },
+    "provenance_path": { "type": "string" },
+    "provenance_signature_path": { "type": "string" }
+  },
+  "$defs": { "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } }
+}

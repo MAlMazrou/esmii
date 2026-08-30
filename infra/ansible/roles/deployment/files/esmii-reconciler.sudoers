@@ -1,0 +1,3 @@
+Defaults:esmii-reconciler env_reset,secure_path=/usr/sbin:/usr/bin:/sbin:/bin,use_pty
+esmii-reconciler ALL=(root) NOPASSWD: /usr/local/sbin/esmii-staging-policy-controller reconcile /var/lib/esmii/reconciler/request.json
+

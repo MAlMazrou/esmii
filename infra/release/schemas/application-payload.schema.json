@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esmii.app/schemas/application-payload.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source_sha",
+    "web_image",
+    "server_image",
+    "migration",
+    "inventory",
+    "provenance_digest",
+    "evidence_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "source_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "web_image": {
+      "type": "string",
+      "pattern": "^ghcr\\.io/malmazrou/esmii-web@sha256:[0-9a-f]{64}$"
+    },
+    "server_image": {
+      "type": "string",
+      "pattern": "^ghcr\\.io/malmazrou/esmii-server@sha256:[0-9a-f]{64}$"
+    },
+    "migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": { "from": { "type": "string" }, "to": { "type": "string" } }
+    },
+    "inventory": { "type": "array", "items": { "type": "object" } },
+    "provenance_digest": { "$ref": "#/$defs/digest" },
+    "evidence_digest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": { "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } }
+}

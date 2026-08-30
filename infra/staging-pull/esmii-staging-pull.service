@@ -1,0 +1,17 @@
+[Unit]
+Description=Pull and activate the latest verified Esmii dev candidate in staging
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/esmii/esmii-staging-pull
+TimeoutStartSec=15min
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+UMask=0077

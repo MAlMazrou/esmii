@@ -1,0 +1,70 @@
+---
+- name: Record the Docker baseline in disposable validation mode
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: "{{ esmii_target_root }}/docker-daemon.json"
+    mode: "0600"
+  when: esmii_test_mode | bool
+
+- name: Create Docker configuration directory
+  ansible.builtin.file:
+    path: /etc/docker
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: not esmii_test_mode | bool
+
+- name: Install the bounded Docker daemon configuration
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Docker
+  when: not esmii_test_mode | bool
+
+- name: Install Docker Engine from the reviewed Ubuntu repository
+  ansible.builtin.apt:
+    name:
+      - docker.io
+      - docker-compose-v2
+    state: present
+  when: not esmii_test_mode | bool
+
+- name: Inspect the Docker CLI after the package step
+  ansible.builtin.stat:
+    path: /usr/bin/docker
+  register: docker_cli
+  when: not esmii_test_mode | bool
+
+- name: Read Docker Compose version
+  ansible.builtin.command:
+    cmd: docker compose version --short
+  check_mode: false
+  changed_when: false
+  register: docker_compose_version
+  when:
+    - not esmii_test_mode | bool
+    - docker_cli.stat.exists
+
+- name: Require Docker Compose 2.33.1 or newer
+  ansible.builtin.assert:
+    that:
+      - docker_compose_version.stdout is version(esmii_compose_minimum_version, '>=')
+    fail_msg: Docker Compose must be upgraded before any release can be rendered.
+  when:
+    - not esmii_test_mode | bool
+    - docker_cli.stat.exists
+
+- name: Record the deferred Compose version gate during first-host check mode
+  ansible.builtin.debug:
+    msg: >-
+      Docker Compose {{ esmii_compose_minimum_version }} or newer will be verified immediately
+      after the planned Docker package installation.
+  changed_when: true
+  when:
+    - not esmii_test_mode | bool
+    - ansible_check_mode
+    - not docker_cli.stat.exists

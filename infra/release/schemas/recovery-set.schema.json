@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esmii.app/schemas/recovery-set.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "recovery_set_id",
+    "release",
+    "database",
+    "media",
+    "stalwart",
+    "configuration",
+    "key_versions",
+    "security_tombstone_high_water",
+    "restic_objects",
+    "completion_marker_digest"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "recovery_set_id": { "type": "string" },
+    "release": {
+      "type": "object",
+      "required": [
+        "release_id",
+        "activation_manifest_digest",
+        "deployment_epoch",
+        "deployment_sequence",
+        "checkpoint_digest"
+      ]
+    },
+    "database": {
+      "type": "object",
+      "required": [
+        "dump_digest",
+        "globals_digest",
+        "schema",
+        "captured_at",
+        "measured_restore_bytes"
+      ]
+    },
+    "media": { "type": "object", "required": ["manifest_digest", "cutoff", "captured_at"] },
+    "stalwart": {
+      "type": "object",
+      "required": ["snapshot_digest", "queue_cutoff", "captured_at"]
+    },
+    "configuration": { "type": "object", "required": ["inventory_digest", "dns_inventory_digest"] },
+    "key_versions": { "type": "array", "items": { "type": "string" } },
+    "security_tombstone_high_water": { "type": "object" },
+    "restic_objects": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+    "completion_marker_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+  }
+}

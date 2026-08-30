@@ -1,0 +1,23 @@
+[Unit]
+Description=Esmii Docker-aware ingress firewall
+After=docker.service
+Requires=docker.service
+Before=esmii-deployment-reconciler.service
+OnFailure=esmii-alert-failure@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/esmii-docker-firewall
+RemainAfterExit=true
+User=root
+Group=root
+Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
+Environment=HOME=/var/empty
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+TimeoutStartSec=30
+
+[Install]
+WantedBy=multi-user.target

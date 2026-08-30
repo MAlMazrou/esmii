@@ -1,0 +1,19 @@
+[Unit]
+Description=Esmii six-hour PostgreSQL recovery-set backup
+After=docker.service systemd-tmpfiles-setup.service
+OnFailure=esmii-alert-failure@%n.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
+Environment=HOME=/var/empty
+ExecStart=/usr/local/libexec/esmii/esmii-backup --kind database
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/etc/myapp /srv/myapp/releases /srv/myapp/production/stalwart /srv/myapp/production/media
+ReadWritePaths=/srv/myapp/production/backup-staging /var/lib/esmii/operations /run/lock/esmii
+TimeoutStartSec=45min

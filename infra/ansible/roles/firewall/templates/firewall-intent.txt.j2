@@ -1,0 +1,9 @@
+Default ingress: deny
+SSH 22/tcp: {{ (esmii_admin_ipv4_cidrs | default([]) + esmii_admin_ipv6_cidrs | default([])) | join(', ') }} only
+WireGuard {{ esmii_wireguard_listen_port | default(51820) }}/udp: {{ 'public cryptographic endpoint' if esmii_enable_wireguard | default(false) | bool else 'disabled' }}
+HTTP 80/tcp: public
+HTTPS 443/tcp+udp: public
+SMTP 25/tcp: denied until Prompt 06 mail gate
+IMAPS operational tunnel: 127.0.0.1:1993 only
+Never public: PostgreSQL, Valkey, Docker, Caddy admin, Stalwart admin, Mailpit, reconciler
+Netcup Mail block: keep enabled through Prompt 05

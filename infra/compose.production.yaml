@@ -1,0 +1,382 @@
+x-production-app-common: &production-app-common
+  image: "@@PRODUCTION_SERVER_IMAGE@@"
+  init: true
+  read_only: true
+  user: "10001:10001"
+  tmpfs:
+    - /tmp:size=64m,noexec,nosuid,nodev
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  restart: unless-stopped
+  logging:
+    driver: local
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  caddy:
+    networks:
+      production-edge:
+        ipv4_address: "@@PRODUCTION_CADDY_IP@@"
+    volumes:
+      - ./caddy/sites-enabled/production.caddy:/etc/caddy/sites-enabled/production.caddy:ro
+      - /srv/myapp/production/media/public/variants:/srv/production-public-media:ro
+    depends_on:
+      production-api:
+        condition: service_healthy
+      production-web:
+        condition: service_healthy
+
+  production-web:
+    image: "@@PRODUCTION_WEB_IMAGE@@"
+    init: true
+    read_only: true
+    user: "10001:10001"
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid,nodev
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+    expose:
+      - "3000"
+    networks:
+      - production-edge
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));"
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 8
+    mem_limit: 384m
+    pids_limit: 128
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  production-api:
+    <<: *production-app-common
+    command: ["node", "dist/entrypoints/http.js"]
+    environment:
+      NODE_ENV: production
+      APP_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3000"
+      TRUSTED_PROXY_IP: "@@PRODUCTION_CADDY_IP@@"
+      APP_PUBLIC_ORIGIN: "https://@@PRODUCTION_APP_DOMAIN@@"
+      APP_DATABASE_URL_FILE: /run/secrets/production_api_database_url
+      APP_VALKEY_URL_FILE: /run/secrets/production_api_valkey_url
+      AUTH_GOOGLE_CLIENT_ID_FILE: /run/secrets/production_auth_google_client_id
+      AUTH_GOOGLE_CLIENT_SECRET_FILE: /run/secrets/production_auth_google_client_secret
+      BETTER_AUTH_SECRET_FILE: /run/secrets/production_better_auth_secret
+      OPERATIONS_HEALTH_TOKEN_FILE: /run/secrets/production_operations_health_token
+      SECURITY_TOMBSTONE_JOURNAL_FILE: /run/secrets/production_security_tombstone_journal
+      STALWART_WEBHOOK_SECRET_FILE: /run/secrets/production_stalwart_webhook_secret
+      MEDIA_ROOT: /srv/media
+    secrets:
+      - production_api_database_url
+      - production_api_valkey_url
+      - production_better_auth_secret
+      - production_operations_health_token
+      - production_security_tombstone_journal
+      - production_stalwart_webhook_secret
+      - production_auth_google_client_id
+      - production_auth_google_client_secret
+    volumes:
+      - /srv/myapp/production/media/private/incoming:/srv/media/private/incoming
+      - /srv/myapp/production/media/private/originals:/srv/media/private/originals:ro
+      - /srv/myapp/production/media/private/variants:/srv/media/private/variants:ro
+      - /srv/myapp/production/media/public/variants:/srv/media/public/variants:ro
+    expose:
+      - "3000"
+    networks:
+      production-edge:
+        gw_priority: 1
+      production-data:
+      production-storage:
+      production-mail-events:
+    depends_on:
+      production-postgres:
+        condition: service_healthy
+      production-valkey:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "dist/healthcheck.js"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 8
+    stop_grace_period: 30s
+    mem_limit: 384m
+    pids_limit: 256
+
+  production-worker:
+    <<: *production-app-common
+    command: ["node", "dist/entrypoints/worker.js"]
+    environment:
+      NODE_ENV: production
+      APP_ENV: production
+      APP_PUBLIC_ORIGIN: "https://@@PRODUCTION_APP_DOMAIN@@"
+      APP_DATABASE_URL_FILE: /run/secrets/production_worker_database_url
+      APP_VALKEY_URL_FILE: /run/secrets/production_worker_valkey_url
+      ACTION_LINK_DERIVATION_KEYRING_FILE: /run/secrets/production_action_link_derivation_keyring
+      SMTP_URL_FILE: /run/secrets/production_stalwart_smtp_url
+      MEDIA_ROOT: /srv/media
+      JOB_CONCURRENCY: "1"
+      PGBOSS_CREATE_SCHEMA: "false"
+      PGBOSS_MIGRATE: "false"
+      SHARP_CONCURRENCY: "1"
+      SHARP_CACHE_MEMORY_MB: "32"
+      MEDIA_MAX_UPLOAD_BYTES: "10485760"
+      MEDIA_MAX_DECODED_PIXELS: "25000000"
+      MEDIA_MAX_PAGES: "1"
+      MEDIA_JOB_TIMEOUT_MS: "30000"
+    secrets:
+      - production_worker_database_url
+      - production_worker_valkey_url
+      - production_action_link_derivation_keyring
+      - production_stalwart_smtp_url
+    volumes:
+      - /srv/myapp/production/media/private/incoming:/srv/media/private/incoming
+      - /srv/myapp/production/media/private/originals:/srv/media/private/originals
+      - /srv/myapp/production/media/private/variants:/srv/media/private/variants
+      - /srv/myapp/production/media/private/trash:/srv/media/private/trash
+      - /srv/myapp/production/media/public/variants:/srv/media/public/variants:ro
+    networks:
+      - production-data
+      - production-storage
+      - production-mail-submit
+    depends_on:
+      production-postgres:
+        condition: service_healthy
+      production-valkey:
+        condition: service_healthy
+    stop_grace_period: 120s
+    mem_limit: 256m
+    pids_limit: 256
+
+  production-migrate:
+    <<: *production-app-common
+    restart: "no"
+    command: ["node", "dist/entrypoints/migrate.js"]
+    environment:
+      NODE_ENV: production
+      APP_ENV: production
+      APP_DATABASE_URL_FILE: /run/secrets/production_migration_database_url
+    secrets:
+      - production_migration_database_url
+    networks:
+      - production-data
+    depends_on:
+      production-postgres:
+        condition: service_healthy
+    profiles:
+      - tools
+    mem_limit: 192m
+    pids_limit: 128
+
+  production-postgres:
+    image: postgres:18.6-bookworm@sha256:1c59e2c3c818eaa0f0628f695b36e7c9e362d6b219b36a54a32df645cbd7e1af
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: esmii
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_bootstrap_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=trust --data-checksums
+    secrets:
+      - source: production_postgres_bootstrap_password
+        target: postgres_bootstrap_password
+      - source: production_postgres_migration_password
+        target: postgres_migration_password
+      - source: production_postgres_api_password
+        target: postgres_api_password
+      - source: production_postgres_worker_password
+        target: postgres_worker_password
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+    volumes:
+      - production-postgres-data:/var/lib/postgresql
+      - ./postgres/production.conf:/etc/postgresql/postgresql.conf:ro
+      - ./postgres/init-host.sh:/docker-entrypoint-initdb.d/010-host-roles.sh:ro
+    networks:
+      - production-data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d esmii"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 12
+    stop_grace_period: 60s
+    mem_limit: 768m
+    pids_limit: 256
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  production-valkey:
+    image: valkey/valkey:9.1.1-alpine@sha256:de31910896150d5e754a07d57d227cfdde4e258ddd0d1aa4607f2d2f95843715
+    restart: unless-stopped
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        cp /run/secrets/valkey_users_acl /tmp/valkey-users.acl
+        chown valkey:valkey /tmp/valkey-users.acl
+        chmod 0600 /tmp/valkey-users.acl
+        exec /usr/local/bin/docker-entrypoint.sh "$$@"
+      - esmii-valkey-entrypoint
+    command: ["valkey-server", "/etc/valkey/valkey.conf"]
+    secrets:
+      - source: production_valkey_users_acl
+        target: valkey_users_acl
+      - source: production_valkey_health_password
+        target: valkey_health_password
+    volumes:
+      - ./valkey/production.conf:/etc/valkey/valkey.conf:ro
+    networks:
+      - production-data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'VALKEYCLI_AUTH="$$(cat /run/secrets/valkey_health_password)" valkey-cli --user health ping | grep -q PONG'
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 12
+    mem_limit: 256m
+    pids_limit: 128
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  production-stalwart:
+    image: stalwartlabs/stalwart:v0.16.19@sha256:0bb2e1fa01ce8dfc8d8dc1006ed11bd7359be6144fd0f8a950b0c7bf5e9a9b6c
+    command: ["--config", "/opt/stalwart/etc/config.toml"]
+    restart: unless-stopped
+    user: "2000:2000"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid,nodev
+    @@PRODUCTION_MAIL_PORTS_BLOCK@@
+    environment:
+      STALWART_HEALTHCHECK_URL: "http://@@STALWART_MAIL_ADMIN_IP@@:8080/healthz/live"
+    expose:
+      - "587"
+    secrets:
+      - production_stalwart_webhook_secret
+      - production_stalwart_dns_api_token
+    volumes:
+      - ./stalwart/config.toml:/opt/stalwart/etc/config.toml:ro
+      - /srv/myapp/production/stalwart/config:/etc/stalwart
+      - /srv/myapp/production/stalwart/data:/var/lib/stalwart
+    networks:
+      production-mail-submit:
+        aliases:
+          - "@@MAIL_HOSTNAME@@"
+      production-mail-events:
+      production-mail-admin:
+        ipv4_address: "@@STALWART_MAIL_ADMIN_IP@@"
+      production-mail-egress:
+        gw_priority: 1
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "curl -fsS --max-time 4 http://@@STALWART_MAIL_ADMIN_IP@@:8080/healthz/live || exit 1"
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    stop_grace_period: 60s
+    mem_limit: 512m
+    pids_limit: 512
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  production-edge:
+    ipam:
+      config:
+        - subnet: "@@PRODUCTION_EDGE_SUBNET@@"
+  production-data:
+    internal: true
+  production-storage:
+    internal: true
+  production-mail-submit:
+    internal: true
+  production-mail-events:
+    internal: true
+  production-mail-admin:
+    internal: true
+    ipam:
+      config:
+        - subnet: "@@PRODUCTION_MAIL_ADMIN_SUBNET@@"
+  production-mail-egress:
+
+volumes:
+  production-postgres-data:
+
+secrets:
+  production_postgres_bootstrap_password:
+    file: /etc/myapp/secrets/production/postgres-bootstrap-password
+  production_postgres_migration_password:
+    file: /etc/myapp/secrets/production/postgres-migration-password
+  production_postgres_api_password:
+    file: /etc/myapp/secrets/production/postgres-api-password
+  production_postgres_worker_password:
+    file: /etc/myapp/secrets/production/postgres-worker-password
+  production_migration_database_url:
+    file: /etc/myapp/secrets/production/database-migration-url
+  production_api_database_url:
+    file: /etc/myapp/secrets/production/database-api-url
+  production_worker_database_url:
+    file: /etc/myapp/secrets/production/database-worker-url
+  production_valkey_users_acl:
+    file: /etc/myapp/secrets/production/valkey-users.acl
+  production_valkey_health_password:
+    file: /etc/myapp/secrets/production/valkey-health-password
+  production_api_valkey_url:
+    file: /etc/myapp/secrets/production/valkey-api-url
+  production_worker_valkey_url:
+    file: /etc/myapp/secrets/production/valkey-worker-url
+  production_operations_health_token:
+    file: /etc/myapp/secrets/production/operations-health-token
+  production_better_auth_secret:
+    file: /etc/myapp/secrets/production/better-auth-secret
+  production_action_link_derivation_keyring:
+    file: /etc/myapp/secrets/production/action-link-derivation-keyring
+  production_security_tombstone_journal:
+    file: /etc/myapp/secrets/production/security-tombstone-journal
+  production_stalwart_smtp_url:
+    file: /etc/myapp/secrets/production/stalwart-smtp-url
+  production_stalwart_webhook_secret:
+    file: /etc/myapp/secrets/production/stalwart-webhook-secret
+  production_stalwart_dns_api_token:
+    file: /etc/myapp/secrets/production/stalwart-dns-api-token
+  production_auth_google_client_id:
+    file: /etc/myapp/secrets/production/auth-google-client-id
+  production_auth_google_client_secret:
+    file: /etc/myapp/secrets/production/auth-google-client-secret

@@ -1,0 +1,26 @@
+---
+all:
+  hosts:
+    esmii-vps:
+      ansible_host: <VPS_IPV4>
+      ansible_user: <BOOTSTRAP_SSH_USER>
+      esmii_admin_ipv4_cidrs:
+        - <ADMIN_IPV4_CIDR>
+      esmii_admin_ipv6_cidrs:
+        - <ADMIN_IPV6_CIDR>
+      esmii_operator_name: <NAMED_OPERATOR>
+      esmii_operator_public_key: <ED25519_PUBLIC_KEY>
+      esmii_enable_operator_passwordless_sudo: false
+      esmii_operator_key_session_confirmed: false
+      esmii_enable_wireguard: false
+      esmii_wireguard_interface: wg0
+      esmii_wireguard_listen_port: 51820
+      esmii_wireguard_server_address: <WIREGUARD_SERVER_CIDR>
+      esmii_wireguard_admin_address: <WIREGUARD_ADMIN_CIDR>
+      esmii_wireguard_server_private_key_file: <IGNORED_LOCAL_WIREGUARD_SERVER_PRIVATE_KEY_PATH>
+      esmii_wireguard_admin_public_key: <WIREGUARD_ADMIN_PUBLIC_KEY>
+      esmii_disable_ssh_passwords: false
+      esmii_enable_host_firewall: false
+      esmii_second_session_confirmed: false
+      esmii_console_recovery_confirmed: false
+      esmii_target_server_confirmed_empty: false

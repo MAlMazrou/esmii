@@ -1,0 +1,75 @@
+---
+- name: Validate that administrative ingress has a reviewed source
+  ansible.builtin.assert:
+    that:
+      - esmii_admin_ipv4_cidrs | default([]) | length + esmii_admin_ipv6_cidrs | default([]) | length > 0
+    fail_msg: At least one reviewed administrator CIDR is required.
+
+- name: Require both recovery paths before enabling the host firewall
+  ansible.builtin.assert:
+    that:
+      - esmii_second_session_confirmed | bool
+      - esmii_console_recovery_confirmed | bool
+    fail_msg: Keep the host firewall disabled until a second keyed admin session and SCP console recovery both pass.
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_host_firewall | bool
+
+- name: Record provider and host firewall intent in disposable validation mode
+  ansible.builtin.template:
+    src: firewall-intent.txt.j2
+    dest: "{{ esmii_target_root }}/firewall.plan"
+    mode: "0600"
+  when: esmii_test_mode | bool
+
+- name: Allow SSH only from approved IPv4 administrator networks
+  community.general.ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+    from_ip: "{{ item }}"
+  loop: "{{ esmii_admin_ipv4_cidrs }}"
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_host_firewall | bool
+
+- name: Allow the authenticated WireGuard administrator tunnel
+  community.general.ufw:
+    rule: allow
+    port: "{{ esmii_wireguard_listen_port }}"
+    proto: udp
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_host_firewall | bool
+    - esmii_enable_wireguard | default(false) | bool
+
+- name: Allow public web ingress
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: "{{ item.protocol }}"
+  loop:
+    - { port: "80", protocol: tcp }
+    - { port: "443", protocol: tcp }
+    - { port: "443", protocol: udp }
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_host_firewall | bool
+
+- name: Activate the default-deny host firewall after staging ingress rules
+  community.general.ufw:
+    direction: incoming
+    policy: deny
+    state: enabled
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_host_firewall | bool
+
+- name: Install the Docker-aware ingress firewall helper
+  ansible.builtin.copy:
+    src: esmii-docker-firewall.sh
+    dest: /usr/local/sbin/esmii-docker-firewall
+    owner: root
+    group: root
+    mode: "0755"
+  when: not esmii_test_mode | bool

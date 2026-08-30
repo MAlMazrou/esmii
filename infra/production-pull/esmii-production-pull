@@ -1,0 +1,263 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+umask 077
+
+readonly CONFIG_PATH=/etc/myapp/production-pull.conf
+readonly SOURCE_ROOT=/usr/local/share/esmii/production-pull
+readonly RUNTIME_ROOT=/srv/myapp/staging-runtime
+readonly STATE_ROOT=/var/lib/esmii/production-pull
+readonly LOCK_PATH=/run/lock/esmii/host-pull.lock
+readonly STAGING_OVERLAY_PATH="${RUNTIME_ROOT}/compose.staging.yaml"
+readonly OVERLAY_PATH="${RUNTIME_ROOT}/compose.production.yaml"
+readonly CAPTURE_OVERLAY_PATH="${RUNTIME_ROOT}/compose.production.capture.yaml"
+readonly PRODUCTION_CADDY_PATH="${RUNTIME_ROOT}/caddy/sites-enabled/production.caddy"
+readonly PREVIOUS_OVERLAY_PATH="${STATE_ROOT}/compose.production.previous.yaml"
+readonly PREVIOUS_CADDY_PATH="${STATE_ROOT}/production.previous.caddy"
+readonly STATE_PATH="${STATE_ROOT}/current.env"
+
+if [[ ${EUID} -ne 0 ]]; then
+  echo "The production pull service must run as root." >&2
+  exit 1
+fi
+
+if [[ ! -f ${CONFIG_PATH} || -L ${CONFIG_PATH} ]]; then
+  echo "Missing or unsafe production pull configuration." >&2
+  exit 1
+fi
+if [[ ! -f ${STAGING_OVERLAY_PATH} || -L ${STAGING_OVERLAY_PATH} ]]; then
+  echo "The active staging overlay is required before production." >&2
+  exit 1
+fi
+
+declare -A configuration=()
+while IFS='=' read -r key value; do
+  [[ -z ${key} || ${key} == \#* ]] && continue
+  case "${key}" in
+    ESMII_GITHUB_REPOSITORY | ESMII_IMAGE_SOURCE | ESMII_WEB_IMAGE | ESMII_SERVER_IMAGE | ESMII_PRODUCTION_DOMAIN | ESMII_PRODUCTION_EDGE_SUBNET | ESMII_PRODUCTION_CADDY_IP | ESMII_PRODUCTION_ADMIN_HEALTH_CIDRS | ESMII_PRODUCTION_MAIL_ADMIN_SUBNET | ESMII_STALWART_MAIL_ADMIN_IP | ESMII_MAIL_DOMAIN | ESMII_MAIL_HOSTNAME | ESMII_BOUNCE_DOMAIN)
+      configuration["${key}"]=${value}
+      ;;
+    *)
+      echo "Unknown production pull configuration key: ${key}" >&2
+      exit 1
+      ;;
+  esac
+done < "${CONFIG_PATH}"
+
+for key in ESMII_GITHUB_REPOSITORY ESMII_IMAGE_SOURCE ESMII_WEB_IMAGE ESMII_SERVER_IMAGE ESMII_PRODUCTION_DOMAIN ESMII_PRODUCTION_EDGE_SUBNET ESMII_PRODUCTION_CADDY_IP ESMII_PRODUCTION_ADMIN_HEALTH_CIDRS ESMII_PRODUCTION_MAIL_ADMIN_SUBNET ESMII_STALWART_MAIL_ADMIN_IP ESMII_MAIL_DOMAIN ESMII_MAIL_HOSTNAME ESMII_BOUNCE_DOMAIN; do
+  if [[ -z ${configuration[${key}]:-} ]]; then
+    echo "Missing production pull configuration key: ${key}" >&2
+    exit 1
+  fi
+done
+
+readonly GITHUB_REPOSITORY=${configuration[ESMII_GITHUB_REPOSITORY]}
+readonly IMAGE_SOURCE=${configuration[ESMII_IMAGE_SOURCE]}
+readonly WEB_REPOSITORY=${configuration[ESMII_WEB_IMAGE]}
+readonly SERVER_REPOSITORY=${configuration[ESMII_SERVER_IMAGE]}
+readonly PRODUCTION_DOMAIN=${configuration[ESMII_PRODUCTION_DOMAIN]}
+readonly EDGE_SUBNET=${configuration[ESMII_PRODUCTION_EDGE_SUBNET]}
+readonly CADDY_IP=${configuration[ESMII_PRODUCTION_CADDY_IP]}
+readonly ADMIN_HEALTH_CIDRS=${configuration[ESMII_PRODUCTION_ADMIN_HEALTH_CIDRS]}
+readonly MAIL_ADMIN_SUBNET=${configuration[ESMII_PRODUCTION_MAIL_ADMIN_SUBNET]}
+readonly STALWART_MAIL_ADMIN_IP=${configuration[ESMII_STALWART_MAIL_ADMIN_IP]}
+readonly MAIL_DOMAIN=${configuration[ESMII_MAIL_DOMAIN]}
+readonly MAIL_HOSTNAME=${configuration[ESMII_MAIL_HOSTNAME]}
+readonly BOUNCE_DOMAIN=${configuration[ESMII_BOUNCE_DOMAIN]}
+
+[[ ${GITHUB_REPOSITORY} =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "Invalid GitHub repository." >&2; exit 1; }
+[[ ${IMAGE_SOURCE} == "https://github.com/${GITHUB_REPOSITORY}" ]] || { echo "Invalid image source." >&2; exit 1; }
+[[ ${WEB_REPOSITORY} =~ ^ghcr\.io/[a-z0-9_.-]+/[a-z0-9_.-]+$ ]] || { echo "Invalid web image repository." >&2; exit 1; }
+[[ ${SERVER_REPOSITORY} =~ ^ghcr\.io/[a-z0-9_.-]+/[a-z0-9_.-]+$ ]] || { echo "Invalid server image repository." >&2; exit 1; }
+for domain in "${PRODUCTION_DOMAIN}" "${MAIL_DOMAIN}" "${MAIL_HOSTNAME}" "${BOUNCE_DOMAIN}"; do
+  [[ ${domain} =~ ^[a-z0-9.-]+$ ]] || { echo "Invalid production domain configuration." >&2; exit 1; }
+done
+[[ ${EDGE_SUBNET} =~ ^[0-9./]+$ && ${CADDY_IP} =~ ^[0-9.]+$ && ${ADMIN_HEALTH_CIDRS} =~ ^[0-9./]+$ && ${MAIL_ADMIN_SUBNET} =~ ^[0-9./]+$ && ${STALWART_MAIL_ADMIN_IP} =~ ^[0-9.]+$ ]] || { echo "Invalid production network configuration." >&2; exit 1; }
+
+install -d -m 0755 "$(dirname "${LOCK_PATH}")"
+install -d -m 0700 "${STATE_ROOT}"
+exec 9>"${LOCK_PATH}"
+if ! flock -n 9; then
+  echo "Another host deployment is active; deferring production."
+  exit 0
+fi
+
+/usr/local/libexec/esmii/prepare-production-runtime-secrets.py
+
+resolve_digest_reference() {
+  local repository=$1
+  local tag=$2
+  local candidate
+  while IFS= read -r candidate; do
+    if [[ ${candidate} == "${repository}@sha256:"* ]]; then
+      printf '%s\n' "${candidate}"
+      return 0
+    fi
+  done < <(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "${repository}:${tag}")
+  return 1
+}
+
+image_label() {
+  docker image inspect --format "{{index .Config.Labels \"$2\"}}" "$1"
+}
+
+compose() {
+  docker compose \
+    --project-name esmii \
+    -f "${RUNTIME_ROOT}/compose.yaml" \
+    -f "${STAGING_OVERLAY_PATH}" \
+    -f "${OVERLAY_PATH}" \
+    -f "${CAPTURE_OVERLAY_PATH}" \
+    "$@"
+}
+
+staging_compose() {
+  docker compose \
+    --project-name esmii \
+    -f "${RUNTIME_ROOT}/compose.yaml" \
+    -f "${STAGING_OVERLAY_PATH}" \
+    "$@"
+}
+
+health_check() {
+  local attempt
+  for attempt in $(seq 1 60); do
+    if curl --fail --silent --show-error --max-time 15 "https://${PRODUCTION_DOMAIN}/api/health/live" >/dev/null; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+deploy_current_overlay() {
+  compose up --no-start --no-deps caddy || return 1
+  compose up -d --wait production-postgres production-valkey production-mailpit || return 1
+  compose --profile tools run --rm production-migrate || return 1
+  docker start esmii-caddy-1 >/dev/null || return 1
+  compose up -d --wait production-api production-worker production-web || return 1
+  compose up -d --wait caddy || return 1
+  health_check || return 1
+}
+
+rollback() {
+  echo "Production activation failed; restoring the preceding production service." >&2
+  if [[ -f ${PREVIOUS_OVERLAY_PATH} && -f ${PREVIOUS_CADDY_PATH} ]]; then
+    install -m 0644 "${PREVIOUS_OVERLAY_PATH}" "${OVERLAY_PATH}"
+    install -m 0644 "${PREVIOUS_CADDY_PATH}" "${PRODUCTION_CADDY_PATH}"
+    compose up -d --wait production-postgres production-valkey production-mailpit || true
+    compose up -d --wait production-api production-worker production-web caddy || true
+    health_check || true
+    return
+  fi
+
+  compose stop production-api production-worker production-web production-mailpit production-valkey production-postgres || true
+  compose rm -f production-api production-worker production-web production-mailpit production-valkey production-postgres || true
+  rm -f "${OVERLAY_PATH}" "${CAPTURE_OVERLAY_PATH}" "${PRODUCTION_CADDY_PATH}"
+  staging_compose up -d --wait caddy || true
+}
+
+echo "Checking the protected main production candidate."
+readonly REMOTE_REVISION=$(curl --fail --silent --show-error --location --max-time 20 \
+  -H 'Accept: application/vnd.github+json' \
+  -H 'X-GitHub-Api-Version: 2022-11-28' \
+  "https://api.github.com/repos/${GITHUB_REPOSITORY}/branches/main" \
+  | python3 -c 'import json, sys; print(json.load(sys.stdin)["commit"]["sha"])')
+[[ ${REMOTE_REVISION} =~ ^[0-9a-f]{40}$ ]] || { echo "GitHub returned an invalid main revision." >&2; exit 1; }
+
+if [[ -f ${STATE_PATH} ]] && grep -Fqx "REVISION=${REMOTE_REVISION}" "${STATE_PATH}"; then
+  echo "Production already runs the current main revision."
+  exit 0
+fi
+
+readonly WORKFLOW_STATE=$(curl --fail --silent --show-error --location --max-time 20 \
+  -H 'Accept: application/vnd.github+json' \
+  -H 'X-GitHub-Api-Version: 2022-11-28' \
+  "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?branch=main&event=push&per_page=20" \
+  | python3 -c 'import json, sys; revision=sys.argv[1]; runs=[run for run in json.load(sys.stdin).get("workflow_runs", []) if run.get("head_sha") == revision and run.get("path") == ".github/workflows/ci.yaml"]; print("success" if any(run.get("status") == "completed" and run.get("conclusion") == "success" for run in runs) else "failed" if any(run.get("status") == "completed" and run.get("conclusion") not in (None, "success") for run in runs) else "pending")' "${REMOTE_REVISION}")
+if [[ ${WORKFLOW_STATE} != success ]]; then
+  echo "The current main CI workflow is ${WORKFLOW_STATE}; keeping the active production revision."
+  exit 0
+fi
+
+WEB_IMAGE=
+SERVER_IMAGE=
+if docker pull "${WEB_REPOSITORY}:main" >/dev/null 2>&1 && docker pull "${SERVER_REPOSITORY}:main" >/dev/null 2>&1; then
+  WEB_IMAGE=$(resolve_digest_reference "${WEB_REPOSITORY}" main)
+  SERVER_IMAGE=$(resolve_digest_reference "${SERVER_REPOSITORY}" main)
+  [[ ${WEB_IMAGE} =~ @sha256:[0-9a-f]{64}$ && ${SERVER_IMAGE} =~ @sha256:[0-9a-f]{64}$ ]] || { echo "Could not resolve immutable production images." >&2; exit 1; }
+else
+  echo "GHCR pull is unavailable; building the exact successful main revision on the VPS."
+  readonly SOURCE_ARCHIVE="${STATE_ROOT}/source-${REMOTE_REVISION}.tar.gz"
+  readonly SOURCE_DIRECTORY="${STATE_ROOT}/source-${REMOTE_REVISION}"
+  readonly SOURCE_TEMP="${SOURCE_ARCHIVE}.tmp"
+  rm -f "${SOURCE_TEMP}"
+  curl --fail --silent --show-error --location --max-time 120 \
+    "https://github.com/${GITHUB_REPOSITORY}/archive/${REMOTE_REVISION}.tar.gz" \
+    -o "${SOURCE_TEMP}"
+  mv "${SOURCE_TEMP}" "${SOURCE_ARCHIVE}"
+  if [[ ! -d ${SOURCE_DIRECTORY} ]]; then
+    install -d -m 0700 "${SOURCE_DIRECTORY}"
+    tar --extract --gzip --file "${SOURCE_ARCHIVE}" --directory "${SOURCE_DIRECTORY}" \
+      --strip-components=1 --no-same-owner --no-same-permissions
+  fi
+  docker build \
+    --build-arg "ESMII_IMAGE_SOURCE=${IMAGE_SOURCE}" \
+    --build-arg "ESMII_IMAGE_REVISION=${REMOTE_REVISION}" \
+    --file "${SOURCE_DIRECTORY}/apps/web/Dockerfile" \
+    --tag "esmii/web:sha-${REMOTE_REVISION}" \
+    "${SOURCE_DIRECTORY}"
+  docker build \
+    --build-arg "ESMII_IMAGE_SOURCE=${IMAGE_SOURCE}" \
+    --build-arg "ESMII_IMAGE_REVISION=${REMOTE_REVISION}" \
+    --file "${SOURCE_DIRECTORY}/apps/server/Dockerfile" \
+    --tag "esmii/server:sha-${REMOTE_REVISION}" \
+    "${SOURCE_DIRECTORY}"
+  WEB_IMAGE="esmii/web:sha-${REMOTE_REVISION}"
+  SERVER_IMAGE="esmii/server:sha-${REMOTE_REVISION}"
+fi
+
+readonly WEB_REVISION=$(image_label "${WEB_IMAGE}" org.opencontainers.image.revision)
+readonly SERVER_REVISION=$(image_label "${SERVER_IMAGE}" org.opencontainers.image.revision)
+readonly WEB_SOURCE=$(image_label "${WEB_IMAGE}" org.opencontainers.image.source)
+readonly SERVER_SOURCE=$(image_label "${SERVER_IMAGE}" org.opencontainers.image.source)
+[[ ${WEB_REVISION} == "${REMOTE_REVISION}" && ${SERVER_REVISION} == "${REMOTE_REVISION}" ]] || { echo "Image revisions do not match the successful main revision." >&2; exit 1; }
+[[ ${WEB_SOURCE} == "${IMAGE_SOURCE}" && ${SERVER_SOURCE} == "${IMAGE_SOURCE}" ]] || { echo "Image sources do not match the configured repository." >&2; exit 1; }
+
+rm -f "${PREVIOUS_OVERLAY_PATH}" "${PREVIOUS_CADDY_PATH}"
+if [[ -f ${STATE_PATH} && -f ${OVERLAY_PATH} && -f ${PRODUCTION_CADDY_PATH} ]]; then
+  install -m 0644 "${OVERLAY_PATH}" "${PREVIOUS_OVERLAY_PATH}"
+  install -m 0644 "${PRODUCTION_CADDY_PATH}" "${PREVIOUS_CADDY_PATH}"
+fi
+
+python3 /usr/local/libexec/esmii/render-production.py \
+  --source-root "${SOURCE_ROOT}" \
+  --runtime-root "${RUNTIME_ROOT}" \
+  --web-image "${WEB_IMAGE}" \
+  --server-image "${SERVER_IMAGE}" \
+  --domain "${PRODUCTION_DOMAIN}" \
+  --edge-subnet "${EDGE_SUBNET}" \
+  --caddy-ip "${CADDY_IP}" \
+  --admin-health-cidrs "${ADMIN_HEALTH_CIDRS}" \
+  --mail-domain "${MAIL_DOMAIN}" \
+  --mail-hostname "${MAIL_HOSTNAME}" \
+  --bounce-domain "${BOUNCE_DOMAIN}" \
+  --mail-admin-subnet "${MAIL_ADMIN_SUBNET}" \
+  --stalwart-mail-admin-ip "${STALWART_MAIL_ADMIN_IP}"
+
+compose config --quiet
+
+if ! deploy_current_overlay; then
+  rollback
+  exit 1
+fi
+
+readonly STATE_TEMP="${STATE_PATH}.tmp"
+{
+  printf 'REVISION=%s\n' "${WEB_REVISION}"
+  printf 'WEB_IMAGE=%s\n' "${WEB_IMAGE}"
+  printf 'SERVER_IMAGE=%s\n' "${SERVER_IMAGE}"
+} > "${STATE_TEMP}"
+chmod 0600 "${STATE_TEMP}"
+mv "${STATE_TEMP}" "${STATE_PATH}"
+echo "Activated production revision ${WEB_REVISION}."

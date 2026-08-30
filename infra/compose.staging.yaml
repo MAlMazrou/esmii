@@ -1,0 +1,364 @@
+x-host-app-common: &host-app-common
+  image: "@@STAGING_SERVER_IMAGE@@"
+  init: true
+  read_only: true
+  user: "10001:10001"
+  tmpfs:
+    - /tmp:size=64m,noexec,nosuid,nodev
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  restart: unless-stopped
+  logging:
+    driver: local
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  caddy:
+    ports: !override
+      - name: public-http
+        target: 80
+        published: "80"
+        protocol: tcp
+        app_protocol: http
+      - name: public-https
+        target: 443
+        published: "443"
+        protocol: tcp
+        app_protocol: https
+      - name: public-http3
+        target: 443
+        published: "443"
+        protocol: udp
+        app_protocol: https
+    networks:
+      staging-edge:
+        ipv4_address: "@@STAGING_CADDY_IP@@"
+    volumes:
+      - ./caddy/sites-enabled/staging.caddy:/etc/caddy/sites-enabled/staging.caddy:ro
+      - /srv/myapp/staging/media/public/variants:/srv/staging-public-media:ro
+    depends_on:
+      staging-api:
+        condition: service_healthy
+      staging-web:
+        condition: service_healthy
+
+  staging-web:
+    image: "@@STAGING_WEB_IMAGE@@"
+    init: true
+    read_only: true
+    user: "10001:10001"
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid,nodev
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+    expose:
+      - "3000"
+    networks:
+      - staging-edge
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));"
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 8
+    mem_limit: 256m
+    pids_limit: 128
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  staging-api:
+    <<: *host-app-common
+    command: ["node", "dist/entrypoints/http.js"]
+    environment:
+      NODE_ENV: production
+      APP_ENV: staging
+      HOST: 0.0.0.0
+      PORT: "3000"
+      TRUSTED_PROXY_IP: "@@STAGING_CADDY_IP@@"
+      APP_PUBLIC_ORIGIN: "https://@@STAGING_APP_DOMAIN@@"
+      APP_DATABASE_URL_FILE: /run/secrets/staging_api_database_url
+      APP_VALKEY_URL_FILE: /run/secrets/staging_api_valkey_url
+      AUTH_STAGING_TESTER_EMAILS_FILE: /run/secrets/staging_tester_allowlist
+      AUTH_GOOGLE_CLIENT_ID_FILE: /run/secrets/staging_auth_google_client_id
+      AUTH_GOOGLE_CLIENT_SECRET_FILE: /run/secrets/staging_auth_google_client_secret
+      BETTER_AUTH_SECRET_FILE: /run/secrets/staging_better_auth_secret
+      OPERATIONS_HEALTH_TOKEN_FILE: /run/secrets/staging_operations_health_token
+      SECURITY_TOMBSTONE_MODE: capture
+      MEDIA_ROOT: /srv/media
+    secrets:
+      - staging_api_database_url
+      - staging_api_valkey_url
+      - staging_tester_allowlist
+      - staging_better_auth_secret
+      - staging_operations_health_token
+      - staging_auth_google_client_id
+      - staging_auth_google_client_secret
+    volumes:
+      - /srv/myapp/staging/media/private/incoming:/srv/media/private/incoming
+      - /srv/myapp/staging/media/private/originals:/srv/media/private/originals:ro
+      - /srv/myapp/staging/media/private/variants:/srv/media/private/variants:ro
+      - /srv/myapp/staging/media/public/variants:/srv/media/public/variants:ro
+    expose:
+      - "3000"
+    networks:
+      staging-edge:
+        gw_priority: 1
+      staging-data:
+      staging-storage:
+    depends_on:
+      staging-postgres:
+        condition: service_healthy
+      staging-valkey:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "dist/healthcheck.js"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 8
+    stop_grace_period: 30s
+    mem_limit: 256m
+    pids_limit: 256
+
+  staging-worker:
+    <<: *host-app-common
+    command: ["node", "dist/entrypoints/worker.js"]
+    environment:
+      NODE_ENV: production
+      APP_ENV: staging
+      APP_PUBLIC_ORIGIN: "https://@@STAGING_APP_DOMAIN@@"
+      APP_DATABASE_URL_FILE: /run/secrets/staging_worker_database_url
+      APP_VALKEY_URL_FILE: /run/secrets/staging_worker_valkey_url
+      ACTION_LINK_DERIVATION_KEYRING_FILE: /run/secrets/staging_action_link_derivation_keyring
+      SMTP_URL: smtp://staging-mailpit:1025
+      MEDIA_ROOT: /srv/media
+      JOB_CONCURRENCY: "1"
+      PGBOSS_CREATE_SCHEMA: "false"
+      PGBOSS_MIGRATE: "false"
+      SHARP_CONCURRENCY: "1"
+      SHARP_CACHE_MEMORY_MB: "16"
+      MEDIA_MAX_UPLOAD_BYTES: "10485760"
+      MEDIA_MAX_DECODED_PIXELS: "25000000"
+      MEDIA_MAX_PAGES: "1"
+      MEDIA_JOB_TIMEOUT_MS: "30000"
+    secrets:
+      - staging_worker_database_url
+      - staging_worker_valkey_url
+      - staging_action_link_derivation_keyring
+    volumes:
+      - /srv/myapp/staging/media/private/incoming:/srv/media/private/incoming
+      - /srv/myapp/staging/media/private/originals:/srv/media/private/originals
+      - /srv/myapp/staging/media/private/variants:/srv/media/private/variants
+      - /srv/myapp/staging/media/private/trash:/srv/media/private/trash
+      - /srv/myapp/staging/media/public/variants:/srv/media/public/variants:ro
+    networks:
+      - staging-data
+      - staging-storage
+      - staging-mail
+    depends_on:
+      staging-postgres:
+        condition: service_healthy
+      staging-valkey:
+        condition: service_healthy
+      staging-mailpit:
+        condition: service_started
+    stop_grace_period: 120s
+    mem_limit: 192m
+    pids_limit: 256
+
+  staging-migrate:
+    <<: *host-app-common
+    restart: "no"
+    command: ["node", "dist/entrypoints/migrate.js"]
+    environment:
+      NODE_ENV: production
+      APP_ENV: staging
+      APP_DATABASE_URL_FILE: /run/secrets/staging_migration_database_url
+    secrets:
+      - staging_migration_database_url
+    networks:
+      - staging-data
+    depends_on:
+      staging-postgres:
+        condition: service_healthy
+    profiles:
+      - tools
+    mem_limit: 192m
+    pids_limit: 128
+
+  staging-postgres:
+    image: postgres:18.6-bookworm@sha256:1c59e2c3c818eaa0f0628f695b36e7c9e362d6b219b36a54a32df645cbd7e1af
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: esmii
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_bootstrap_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=trust --data-checksums
+    secrets:
+      - source: staging_postgres_bootstrap_password
+        target: postgres_bootstrap_password
+      - source: staging_postgres_migration_password
+        target: postgres_migration_password
+      - source: staging_postgres_api_password
+        target: postgres_api_password
+      - source: staging_postgres_worker_password
+        target: postgres_worker_password
+    command:
+      - postgres
+      - -c
+      - config_file=/etc/postgresql/postgresql.conf
+    volumes:
+      - staging-postgres-data:/var/lib/postgresql
+      - ./postgres/staging.conf:/etc/postgresql/postgresql.conf:ro
+      - ./postgres/init-host.sh:/docker-entrypoint-initdb.d/010-host-roles.sh:ro
+    networks:
+      - staging-data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d esmii"]
+      interval: 10s
+      timeout: 5s
+      start_period: 15s
+      retries: 12
+    stop_grace_period: 60s
+    mem_limit: 384m
+    pids_limit: 256
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  staging-valkey:
+    image: valkey/valkey:9.1.1-alpine@sha256:de31910896150d5e754a07d57d227cfdde4e258ddd0d1aa4607f2d2f95843715
+    restart: unless-stopped
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        cp /run/secrets/valkey_users_acl /tmp/valkey-users.acl
+        chown valkey:valkey /tmp/valkey-users.acl
+        chmod 0600 /tmp/valkey-users.acl
+        exec /usr/local/bin/docker-entrypoint.sh "$$@"
+      - esmii-valkey-entrypoint
+    command: ["valkey-server", "/etc/valkey/valkey.conf"]
+    secrets:
+      - source: staging_valkey_users_acl
+        target: valkey_users_acl
+      - source: staging_valkey_health_password
+        target: valkey_health_password
+    volumes:
+      - ./valkey/staging.conf:/etc/valkey/valkey.conf:ro
+    networks:
+      - staging-data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'VALKEYCLI_AUTH="$$(cat /run/secrets/valkey_health_password)" valkey-cli --user health ping | grep -q PONG'
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 12
+    mem_limit: 128m
+    pids_limit: 128
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  staging-mailpit:
+    image: axllent/mailpit:v1.30.0@sha256:0059ef81e492a7192af3816281eed6859eb078bd7bdc58b76757c13e10e53a7d
+    restart: unless-stopped
+    environment:
+      MP_DATABASE: /data/mailpit.db
+      MP_MAX_MESSAGES: "500"
+      MP_SMTP_AUTH_ACCEPT_ANY: "0"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "0"
+    expose:
+      - "1025"
+      - "8025"
+    volumes:
+      - staging-mailpit-data:/data
+    networks:
+      - staging-mail
+      - staging-operator
+    mem_limit: 128m
+    pids_limit: 128
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  staging-edge:
+    ipam:
+      config:
+        - subnet: "@@STAGING_EDGE_SUBNET@@"
+  staging-data:
+    internal: true
+  staging-storage:
+    internal: true
+  staging-mail:
+    internal: true
+  staging-operator:
+    internal: true
+
+volumes:
+  staging-postgres-data:
+  staging-mailpit-data:
+
+secrets:
+  staging_postgres_bootstrap_password:
+    file: /etc/myapp/runtime-secrets/staging/postgres-bootstrap-password
+  staging_postgres_migration_password:
+    file: /etc/myapp/runtime-secrets/staging/postgres-migration-password
+  staging_postgres_api_password:
+    file: /etc/myapp/runtime-secrets/staging/postgres-api-password
+  staging_postgres_worker_password:
+    file: /etc/myapp/runtime-secrets/staging/postgres-worker-password
+  staging_migration_database_url:
+    file: /etc/myapp/runtime-secrets/staging/database-migration-url
+  staging_api_database_url:
+    file: /etc/myapp/runtime-secrets/staging/database-api-url
+  staging_worker_database_url:
+    file: /etc/myapp/runtime-secrets/staging/database-worker-url
+  staging_valkey_users_acl:
+    file: /etc/myapp/runtime-secrets/staging/valkey-users.acl
+  staging_valkey_health_password:
+    file: /etc/myapp/runtime-secrets/staging/valkey-health-password
+  staging_api_valkey_url:
+    file: /etc/myapp/runtime-secrets/staging/valkey-api-url
+  staging_worker_valkey_url:
+    file: /etc/myapp/runtime-secrets/staging/valkey-worker-url
+  staging_operations_health_token:
+    file: /etc/myapp/runtime-secrets/staging/operations-health-token
+  staging_better_auth_secret:
+    file: /etc/myapp/runtime-secrets/staging/better-auth-secret
+  staging_action_link_derivation_keyring:
+    file: /etc/myapp/runtime-secrets/staging/action-link-derivation-keyring
+  staging_tester_allowlist:
+    file: /etc/myapp/runtime-secrets/staging/tester-allowlist
+  staging_auth_google_client_id:
+    file: /etc/myapp/runtime-secrets/staging/auth-google-client-id
+  staging_auth_google_client_secret:
+    file: /etc/myapp/runtime-secrets/staging/auth-google-client-secret

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esmii.app/schemas/shared-payload-inventory.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "files", "normalized"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "mode", "size", "sha256"],
+        "properties": {
+          "path": { "type": "string", "pattern": "^infra/(?!.*(?:^|/)\\.\\.(?:/|$)).+$" },
+          "mode": { "enum": ["0644", "0755"] },
+          "size": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+        }
+      }
+    },
+    "normalized": {
+      "const": { "gid": 0, "mtime": 0, "order": "path-byte-order", "uid": 0 }
+    }
+  }
+}

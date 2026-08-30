@@ -1,0 +1,12 @@
+services:
+  production-stalwart:
+    ports:
+      - name: public-smtp
+        target: 25
+        published: "25"
+        protocol: tcp
+      - name: loopback-imaps
+        target: 993
+        published: "1993"
+        host_ip: 127.0.0.1
+        protocol: tcp

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://esmii.app/schemas/staging-policy.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "repository",
+    "allowed_branch",
+    "allowed_environment",
+    "deployment_epoch",
+    "shared_infrastructure_payload_digest",
+    "signing_public_key",
+    "revoked"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "repository": { "const": "malmazrou/esmii" },
+    "allowed_branch": { "const": "dev" },
+    "allowed_environment": { "const": "staging" },
+    "deployment_epoch": { "type": "string" },
+    "shared_infrastructure_payload_digest": { "$ref": "#/$defs/digest" },
+    "signing_public_key": {
+      "const": "/etc/myapp/deployment-policies/github-deployment-public.pem"
+    },
+    "revoked": { "type": "boolean" }
+  },
+  "$defs": { "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" } }
+}

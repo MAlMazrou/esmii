@@ -1,0 +1,9 @@
+[Interface]
+Address = {{ esmii_wireguard_server_address }}
+ListenPort = {{ esmii_wireguard_listen_port }}
+PrivateKey = {{ lookup('ansible.builtin.file', esmii_wireguard_server_private_key_file) | trim }}
+SaveConfig = false
+
+[Peer]
+PublicKey = {{ esmii_wireguard_admin_public_key }}
+AllowedIPs = {{ esmii_wireguard_admin_address }}
