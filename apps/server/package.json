@@ -26,7 +26,7 @@
     "nodemailer": "9.0.6",
     "pg-boss": "12.28.0",
     "pino": "10.3.1",
-    "redis": "5.12.1",
+    "redis": "6.2.1",
     "socket.io": "4.8.3",
     "typebox": "1.3.7"
   },
