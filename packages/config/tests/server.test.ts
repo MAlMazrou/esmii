@@ -67,6 +67,25 @@ describe("server configuration", () => {
     expect(value).toBe("postgresql://api:local-only@postgres/app");
   });
 
+  it("loads the staging tester allowlist from its Docker secret file", async () => {
+    const configuration = await loadHttpServerConfig(
+      {
+        ...validEnvironment,
+        APP_ENV: "staging",
+        APP_PUBLIC_ORIGIN: "https://staging.esmii.app",
+        AUTH_STAGING_TESTER_EMAILS_FILE: "/run/secrets/staging_tester_allowlist",
+      },
+      async (path) => {
+        if (path === "/run/secrets/staging_tester_allowlist") return "support@polytech.ae\n";
+        throw new Error("unexpected secret path");
+      },
+    );
+
+    expect(configuration.authentication.stagingTesterEmails).toEqual(
+      new Set(["support@polytech.ae"]),
+    );
+  });
+
   it("enables mock social providers only in local/test environments", async () => {
     const configuration = await loadHttpServerConfig({
       ...validEnvironment,

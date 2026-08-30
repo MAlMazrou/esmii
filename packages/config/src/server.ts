@@ -453,15 +453,23 @@ export async function loadHttpServerConfig(
 ): Promise<HttpServerConfig> {
   const effectiveReader = fileReader ?? ((path: string) => readFile(path, "utf8"));
   const appEnvironment = readAppEnvironment(environment);
-  const [databaseUrl, valkeyUrl, operationsHealthToken, betterAuthSecret, providers, journal] =
-    await Promise.all([
-      readDatabaseUrl(environment, effectiveReader),
-      readValkeyUrl(environment, effectiveReader),
-      readRuntimeValue("OPERATIONS_HEALTH_TOKEN", environment, effectiveReader),
-      readRuntimeValue("BETTER_AUTH_SECRET", environment, effectiveReader),
-      readProviderConfiguration(environment, effectiveReader, appEnvironment),
-      readOptionalRuntimeValue("SECURITY_TOMBSTONE_JOURNAL", environment, effectiveReader),
-    ]);
+  const [
+    databaseUrl,
+    valkeyUrl,
+    operationsHealthToken,
+    betterAuthSecret,
+    providers,
+    journal,
+    stagingTesterEmailValue,
+  ] = await Promise.all([
+    readDatabaseUrl(environment, effectiveReader),
+    readValkeyUrl(environment, effectiveReader),
+    readRuntimeValue("OPERATIONS_HEALTH_TOKEN", environment, effectiveReader),
+    readRuntimeValue("BETTER_AUTH_SECRET", environment, effectiveReader),
+    readProviderConfiguration(environment, effectiveReader, appEnvironment),
+    readOptionalRuntimeValue("SECURITY_TOMBSTONE_JOURNAL", environment, effectiveReader),
+    readOptionalRuntimeValue("AUTH_STAGING_TESTER_EMAILS", environment, effectiveReader),
+  ]);
   assertSecretStrength("OPERATIONS_HEALTH_TOKEN", operationsHealthToken);
   assertSecretStrength("BETTER_AUTH_SECRET", betterAuthSecret);
 
@@ -488,7 +496,7 @@ export async function loadHttpServerConfig(
     );
   }
 
-  const stagingTesterEmails = parseStagingTesterEmails(environment.AUTH_STAGING_TESTER_EMAILS);
+  const stagingTesterEmails = parseStagingTesterEmails(stagingTesterEmailValue);
   if (appEnvironment === "staging" && stagingTesterEmails.size === 0) {
     throw new ConfigurationError(
       "AUTH_STAGING_TESTER_EMAILS",
