@@ -140,6 +140,12 @@ deploy_current_overlay() {
   health_check || return 1
 }
 
+diagnose_activation_failure() {
+  echo "Production activation diagnostics before rollback." >&2
+  compose ps || true
+  compose logs --no-color --tail 120 production-api || true
+}
+
 rollback() {
   echo "Production activation failed; restoring the preceding production service." >&2
   if [[ -f ${PREVIOUS_OVERLAY_PATH} && -f ${PREVIOUS_CADDY_PATH} ]]; then
@@ -248,6 +254,7 @@ python3 /usr/local/libexec/esmii/render-production.py \
 compose config --quiet
 
 if ! deploy_current_overlay; then
+  diagnose_activation_failure
   rollback
   exit 1
 fi
