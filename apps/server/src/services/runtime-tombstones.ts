@@ -9,11 +9,15 @@ import { PostgresSecurityTombstoneOrchestrator } from "./tombstone-orchestrator.
  * Production remains fail-closed until its external durable journal is provisioned.
  */
 export async function createRuntimeTombstoneOrchestrator(input: {
+  allowProductionCapture?: boolean;
   database: DatabaseClient;
   environment: AppEnvironment;
   mode: "capture" | "external";
 }): Promise<PostgresSecurityTombstoneOrchestrator> {
-  if (input.mode !== "capture" || input.environment === "production") {
+  if (
+    input.mode !== "capture" ||
+    (input.environment === "production" && input.allowProductionCapture !== true)
+  ) {
     throw new Error("external tombstone capture must be provisioned before this runtime can start");
   }
   const state = await readTombstoneRecoveryState(input.database.pool);

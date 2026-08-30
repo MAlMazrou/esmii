@@ -23,6 +23,11 @@ def render(source: pathlib.Path, destination: pathlib.Path, replacements: dict[s
         "/etc/myapp/runtime-secrets/production/",
     )
     if source.name == "compose.production.yaml":
+        contents = contents.replace(
+            "      APP_ENV: production\n",
+            '      APP_ENV: production\n      SECURITY_TOMBSTONE_MODE: capture\n      INITIAL_PUBLIC_SHELL_MODE: "true"\n',
+            1,
+        )
         contents = re.sub(
             r"^\s+SMTP_URL_FILE:.*\n",
             "",
@@ -36,7 +41,13 @@ def render(source: pathlib.Path, destination: pathlib.Path, replacements: dict[s
             flags=re.MULTILINE,
         )
         contents = re.sub(
-            r"^\s+- production_auth_google_client_(?:id|secret)\n",
+            r"^\s+SECURITY_TOMBSTONE_JOURNAL_FILE:.*\n",
+            "",
+            contents,
+            flags=re.MULTILINE,
+        )
+        contents = re.sub(
+            r"^\s+- (?:production_auth_google_client_(?:id|secret)|production_security_tombstone_journal)\n",
             "",
             contents,
             flags=re.MULTILINE,
