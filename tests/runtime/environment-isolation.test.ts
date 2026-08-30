@@ -29,6 +29,7 @@ describe("runtime configuration isolation", () => {
       APP_PUBLIC_ORIGIN: "https://esmii.app",
       APP_VALKEY_URL: productionValkey,
       BETTER_AUTH_SECRET: productionAuthMarker,
+      INITIAL_PUBLIC_SHELL_MODE: "true",
       OPERATIONS_HEALTH_TOKEN: productionMarker,
     });
 
