@@ -80,7 +80,7 @@ test("routes an unauthenticated visitor to the passwordless sign-in surface", as
   await expect(page.getByRole("heading", { name: "Sign in to Esmii" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Email me a sign-in link" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Continue with Microsoft" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Microsoft/u })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Apple/u })).toHaveCount(0);
 });
 
