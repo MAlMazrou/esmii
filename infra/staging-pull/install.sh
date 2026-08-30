@@ -14,11 +14,12 @@ readonly RUNTIME_ROOT=/srv/myapp/staging-runtime
 
 install -d -m 0755 /usr/local/libexec/esmii "${SHARE_ROOT}" "${SHARE_ROOT}/caddy/sites" "${SHARE_ROOT}/postgres" "${SHARE_ROOT}/valkey"
 install -d -m 0755 "${RUNTIME_ROOT}" "${RUNTIME_ROOT}/caddy/sites-enabled" "${RUNTIME_ROOT}/postgres" "${RUNTIME_ROOT}/valkey"
-install -d -m 0700 /var/lib/esmii/staging-pull /etc/myapp /etc/myapp/secrets/staging
+install -d -m 0700 /var/lib/esmii/staging-pull /etc/myapp /etc/myapp/secrets/staging /etc/myapp/runtime-secrets/staging
 
 install -m 0755 "${REPOSITORY_ROOT}/infra/staging-pull/esmii-staging-pull" /usr/local/libexec/esmii/esmii-staging-pull
 install -m 0755 "${REPOSITORY_ROOT}/infra/staging-pull/render-staging.py" /usr/local/libexec/esmii/render-staging.py
 install -m 0755 "${REPOSITORY_ROOT}/infra/staging-pull/prepare-staging-secrets.py" /usr/local/libexec/esmii/prepare-staging-secrets.py
+install -m 0755 "${REPOSITORY_ROOT}/infra/staging-pull/prepare-runtime-secrets.py" /usr/local/libexec/esmii/prepare-runtime-secrets.py
 install -m 0644 "${REPOSITORY_ROOT}/infra/compose.yaml" "${SHARE_ROOT}/compose.yaml"
 install -m 0644 "${REPOSITORY_ROOT}/infra/compose.staging.yaml" "${SHARE_ROOT}/compose.staging.yaml"
 install -m 0644 "${REPOSITORY_ROOT}/infra/caddy/Caddyfile" "${SHARE_ROOT}/caddy/Caddyfile"

@@ -45,7 +45,8 @@ ENV HOSTNAME=0.0.0.0 \
 
 WORKDIR /app
 
-RUN groupadd --system --gid 10001 esmii \
+RUN npm uninstall --global npm \
+    && groupadd --system --gid 10001 esmii \
     && useradd --system --uid 10001 --gid 10001 --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin esmii
 
 COPY --from=build --chown=10001:10001 /workspace/apps/web/.next/standalone ./

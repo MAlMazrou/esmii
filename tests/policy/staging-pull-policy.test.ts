@@ -28,4 +28,18 @@ describe("staging pull policy", () => {
     expect(joined).not.toContain("production-api");
     expect(joined).not.toContain("production-worker");
   });
+
+  it("keeps canonical staging secrets root-only and mounts only isolated runtime copies", async () => {
+    const [compose, puller, preparer] = await Promise.all([
+      readFile("infra/compose.staging.yaml", "utf8"),
+      readFile("infra/staging-pull/esmii-staging-pull", "utf8"),
+      readFile("infra/staging-pull/prepare-runtime-secrets.py", "utf8"),
+    ]);
+
+    expect(compose).toContain("/etc/myapp/runtime-secrets/staging/");
+    expect(compose).not.toContain("file: /etc/myapp/secrets/staging/");
+    expect(puller).toContain("prepare-runtime-secrets.py");
+    expect(preparer).toContain("source.chmod(0o600)");
+    expect(preparer).toContain("temporary.chmod(0o444)");
+  });
 });

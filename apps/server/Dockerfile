@@ -24,6 +24,11 @@ COPY apps/server apps/server
 COPY packages packages
 RUN corepack pnpm --filter @esmii/server... build
 RUN corepack pnpm --filter @esmii/server deploy --prod /opt/server
+RUN find /opt/server/node_modules -type f \( \
+        -path '*/node_modules/@esbuild/*/bin/esbuild' \
+        -o -path '*/node_modules/esbuild/bin/esbuild' \
+    \) -delete \
+    && test -z "$(find /opt/server/node_modules -type f -path '*/node_modules/*esbuild*/bin/esbuild' -print -quit)"
 
 FROM node:24.20.0-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e AS runtime
 ARG ESMII_IMAGE_SOURCE=local://esmii/working-tree
@@ -33,7 +38,8 @@ LABEL org.opencontainers.image.source="${ESMII_IMAGE_SOURCE}" \
 ENV NODE_ENV=production
 ENV PORT=3000
 WORKDIR /app
-RUN groupadd --gid 10001 esmii \
+RUN npm uninstall --global npm \
+    && groupadd --gid 10001 esmii \
     && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/esmii --shell /usr/sbin/nologin esmii \
     && install -d -o 10001 -g 10001 -m 0750 \
         /srv/media/private/incoming \

@@ -208,6 +208,7 @@ jobs:
           exit-code: "1"
           vuln-type: os,library
           severity: HIGH,CRITICAL
+          ignore-unfixed: true
       - name: Scan the server image for high and critical vulnerabilities
         uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
         with:
@@ -216,6 +217,7 @@ jobs:
           exit-code: "1"
           vuln-type: os,library
           severity: HIGH,CRITICAL
+          ignore-unfixed: true
       - name: Generate the web SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:

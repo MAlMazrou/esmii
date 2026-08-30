@@ -329,36 +329,36 @@ volumes:
 
 secrets:
   staging_postgres_bootstrap_password:
-    file: /etc/myapp/secrets/staging/postgres-bootstrap-password
+    file: /etc/myapp/runtime-secrets/staging/postgres-bootstrap-password
   staging_postgres_migration_password:
-    file: /etc/myapp/secrets/staging/postgres-migration-password
+    file: /etc/myapp/runtime-secrets/staging/postgres-migration-password
   staging_postgres_api_password:
-    file: /etc/myapp/secrets/staging/postgres-api-password
+    file: /etc/myapp/runtime-secrets/staging/postgres-api-password
   staging_postgres_worker_password:
-    file: /etc/myapp/secrets/staging/postgres-worker-password
+    file: /etc/myapp/runtime-secrets/staging/postgres-worker-password
   staging_migration_database_url:
-    file: /etc/myapp/secrets/staging/database-migration-url
+    file: /etc/myapp/runtime-secrets/staging/database-migration-url
   staging_api_database_url:
-    file: /etc/myapp/secrets/staging/database-api-url
+    file: /etc/myapp/runtime-secrets/staging/database-api-url
   staging_worker_database_url:
-    file: /etc/myapp/secrets/staging/database-worker-url
+    file: /etc/myapp/runtime-secrets/staging/database-worker-url
   staging_valkey_users_acl:
-    file: /etc/myapp/secrets/staging/valkey-users.acl
+    file: /etc/myapp/runtime-secrets/staging/valkey-users.acl
   staging_valkey_health_password:
-    file: /etc/myapp/secrets/staging/valkey-health-password
+    file: /etc/myapp/runtime-secrets/staging/valkey-health-password
   staging_api_valkey_url:
-    file: /etc/myapp/secrets/staging/valkey-api-url
+    file: /etc/myapp/runtime-secrets/staging/valkey-api-url
   staging_worker_valkey_url:
-    file: /etc/myapp/secrets/staging/valkey-worker-url
+    file: /etc/myapp/runtime-secrets/staging/valkey-worker-url
   staging_operations_health_token:
-    file: /etc/myapp/secrets/staging/operations-health-token
+    file: /etc/myapp/runtime-secrets/staging/operations-health-token
   staging_better_auth_secret:
-    file: /etc/myapp/secrets/staging/better-auth-secret
+    file: /etc/myapp/runtime-secrets/staging/better-auth-secret
   staging_action_link_derivation_keyring:
-    file: /etc/myapp/secrets/staging/action-link-derivation-keyring
+    file: /etc/myapp/runtime-secrets/staging/action-link-derivation-keyring
   staging_tester_allowlist:
-    file: /etc/myapp/secrets/staging/tester-allowlist
+    file: /etc/myapp/runtime-secrets/staging/tester-allowlist
   staging_auth_google_client_id:
-    file: /etc/myapp/secrets/staging/auth-google-client-id
+    file: /etc/myapp/runtime-secrets/staging/auth-google-client-id
   staging_auth_google_client_secret:
-    file: /etc/myapp/secrets/staging/auth-google-client-secret
+    file: /etc/myapp/runtime-secrets/staging/auth-google-client-secret

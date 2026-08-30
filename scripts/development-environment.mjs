@@ -12,6 +12,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const localBase = join(root, ".local");
 const localRoot = join(root, ".local", "development");
 const secretsRoot = join(localRoot, "secrets");
+const runtimeSecretsRoot = join(secretsRoot, "runtime");
 const envPath = join(root, "infra", ".env.development.local");
 const expectedProject = "esmii-development";
 
@@ -25,6 +26,23 @@ const secretFiles = [
   "valkey-health-password",
   "operations-token",
   "better-auth-secret",
+];
+
+const composeSecretFiles = [
+  "postgres-superuser-password",
+  "postgres-migration-password",
+  "postgres-api-password",
+  "postgres-worker-password",
+  "database-migration-url",
+  "database-api-url",
+  "database-worker-url",
+  "valkey-users.acl",
+  "valkey-health-password",
+  "valkey-api-url",
+  "valkey-worker-url",
+  "operations-token",
+  "better-auth-secret",
+  "action-link-derivation-keyring",
 ];
 
 function isMissing(error) {
@@ -97,6 +115,35 @@ async function writePrivate(path, contents) {
   }
 }
 
+async function writeRuntimeCopy(filename) {
+  const source = join(secretsRoot, filename);
+  const destination = join(runtimeSecretsRoot, filename);
+  await validatePrivateFile(source);
+  const contents = await readFile(source);
+  if (contents.length === 0) {
+    throw new Error(`Refusing empty development secret file: ${source}`);
+  }
+
+  try {
+    const information = await lstat(destination);
+    assertOwnedPath(destination, information, "file");
+  } catch (error) {
+    if (!isMissing(error)) throw error;
+  }
+
+  const temporaryPath = `${destination}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+  try {
+    await writeFile(temporaryPath, contents, { mode: 0o400, flag: "wx" });
+    await chmod(temporaryPath, 0o444);
+    await rename(temporaryPath, destination);
+    const information = await lstat(destination);
+    assertOwnedPath(destination, information, "file");
+    await chmod(destination, 0o444);
+  } finally {
+    await rm(temporaryPath, { force: true });
+  }
+}
+
 async function readSecret(filename) {
   const path = join(secretsRoot, filename);
   await validatePrivateFile(path);
@@ -111,6 +158,7 @@ async function prepare() {
   await ensurePrivateDirectory(localBase);
   await ensurePrivateDirectory(localRoot);
   await ensurePrivateDirectory(secretsRoot);
+  await ensurePrivateDirectory(runtimeSecretsRoot);
 
   for (const filename of secretFiles) {
     await writeIfMissing(join(secretsRoot, filename), `${randomBytes(32).toString("base64url")}\n`);
@@ -175,6 +223,10 @@ async function prepare() {
       "",
     ].join("\n"),
   );
+
+  for (const filename of composeSecretFiles) {
+    await writeRuntimeCopy(filename);
+  }
 
   await writeIfMissing(
     envPath,

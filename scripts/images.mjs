@@ -376,6 +376,26 @@ if (process.argv[2] === "build") {
     );
     if (scan.status !== 0) process.exit(scan.status ?? 1);
 
+    const runtimeToolBoundary = spawnLocalDocker(
+      docker,
+      [
+        "run",
+        "--rm",
+        "--entrypoint",
+        "sh",
+        image.tag,
+        "-c",
+        image.kind === "server"
+          ? "test ! -e /usr/local/lib/node_modules/npm && test -z \"$(find /app/node_modules -type f -path '*/node_modules/*esbuild*/bin/esbuild' -print -quit)\""
+          : "test ! -e /usr/local/lib/node_modules/npm",
+      ],
+      { stdio: "inherit" },
+    );
+    if (runtimeToolBoundary.status !== 0) {
+      console.error(`${image.tag} retains unused package-manager or build executables.`);
+      process.exit(runtimeToolBoundary.status ?? 1);
+    }
+
     if (image.kind === "server") {
       const publicMediaBoundary = spawnLocalDocker(
         docker,

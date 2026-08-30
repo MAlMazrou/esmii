@@ -13,6 +13,8 @@ This runbook covers only the active Prompt 05 staging exception recorded in `DEC
 
 The timer keeps the existing staging release when CI is pending or failed. A failed activation restores the preceding staging Compose overlay; on the first activation it restores the temporary Caddy demo.
 
+Canonical staging credentials remain root-owned mode `0600` below `/etc/myapp/secrets/staging`. Before Compose starts, the root-owned pull service refreshes mode-`0444` copies below a root-only mode-`0700` directory at `/etc/myapp/runtime-secrets/staging`. Docker mounts only each service's explicitly declared files, which lets non-root containers read their own credentials without exposing the canonical set to host users or unrelated services.
+
 ## Read-only status
 
 ```bash

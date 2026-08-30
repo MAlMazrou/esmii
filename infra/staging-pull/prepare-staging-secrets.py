@@ -7,6 +7,7 @@ import json
 import os
 import pathlib
 import secrets
+import subprocess
 import sys
 import urllib.parse
 
@@ -116,6 +117,10 @@ def main() -> int:
     for path in root.iterdir():
         if path.is_file() and not path.is_symlink():
             path.chmod(0o600)
+    subprocess.run(
+        ["/usr/local/libexec/esmii/prepare-runtime-secrets.py"],
+        check=True,
+    )
     print("Prepared the root-only staging secret set without printing credential values.")
     return 0
 
@@ -123,6 +128,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (OSError, ValueError, json.JSONDecodeError) as error:
+    except (OSError, ValueError, json.JSONDecodeError, subprocess.CalledProcessError) as error:
         print(f"staging secret preparation failed: {error}", file=sys.stderr)
         raise SystemExit(1) from error

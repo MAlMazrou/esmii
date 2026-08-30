@@ -309,30 +309,30 @@ volumes:
 
 secrets:
   development_postgres_superuser_password:
-    file: ../.local/development/secrets/postgres-superuser-password
+    file: ../.local/development/secrets/runtime/postgres-superuser-password
   development_postgres_migration_password:
-    file: ../.local/development/secrets/postgres-migration-password
+    file: ../.local/development/secrets/runtime/postgres-migration-password
   development_postgres_api_password:
-    file: ../.local/development/secrets/postgres-api-password
+    file: ../.local/development/secrets/runtime/postgres-api-password
   development_postgres_worker_password:
-    file: ../.local/development/secrets/postgres-worker-password
+    file: ../.local/development/secrets/runtime/postgres-worker-password
   development_migration_database_url:
-    file: ../.local/development/secrets/database-migration-url
+    file: ../.local/development/secrets/runtime/database-migration-url
   development_api_database_url:
-    file: ../.local/development/secrets/database-api-url
+    file: ../.local/development/secrets/runtime/database-api-url
   development_worker_database_url:
-    file: ../.local/development/secrets/database-worker-url
+    file: ../.local/development/secrets/runtime/database-worker-url
   development_valkey_users_acl:
-    file: ../.local/development/secrets/valkey-users.acl
+    file: ../.local/development/secrets/runtime/valkey-users.acl
   development_valkey_health_password:
-    file: ../.local/development/secrets/valkey-health-password
+    file: ../.local/development/secrets/runtime/valkey-health-password
   development_api_valkey_url:
-    file: ../.local/development/secrets/valkey-api-url
+    file: ../.local/development/secrets/runtime/valkey-api-url
   development_worker_valkey_url:
-    file: ../.local/development/secrets/valkey-worker-url
+    file: ../.local/development/secrets/runtime/valkey-worker-url
   development_operations_health_token:
-    file: ../.local/development/secrets/operations-token
+    file: ../.local/development/secrets/runtime/operations-token
   development_better_auth_secret:
-    file: ../.local/development/secrets/better-auth-secret
+    file: ../.local/development/secrets/runtime/better-auth-secret
   development_action_link_derivation_keyring:
-    file: ../.local/development/secrets/action-link-derivation-keyring
+    file: ../.local/development/secrets/runtime/action-link-derivation-keyring

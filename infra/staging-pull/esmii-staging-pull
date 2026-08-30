@@ -67,6 +67,8 @@ if ! flock -n 9; then
   exit 0
 fi
 
+/usr/local/libexec/esmii/prepare-runtime-secrets.py
+
 resolve_digest_reference() {
   local repository=$1
   local tag=$2
