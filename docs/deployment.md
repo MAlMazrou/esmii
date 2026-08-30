@@ -49,7 +49,7 @@ feature branch -> PR -> protected dev
 
 There are no long-lived `staging` or `production` branches. `dev` is the integration/staging source. `main` records the code tree verified live in production. The root-sealed release manifest, not a branch name or mutable tag, is authoritative for exact runtime digests.
 
-### 1.1 Active Prompt 05 staging automation
+### 1.1 Active staging and initial-public production automation
 
 The user authorized a smaller staging-only delivery path on 30 August 2026 so ordinary `dev` changes can reach the VPS without GitHub receiving SSH access. The active path is deliberately limited:
 
@@ -59,7 +59,7 @@ The user authorized a smaller staging-only delivery path on 30 August 2026 so or
 4. The host renders only the staging overlay, runs the one-shot migration, starts the isolated staging services, checks public HTTPS health, and restores the preceding Compose overlay or the temporary demo if activation fails.
 5. The timer has no repository-write permission or public listener. GitHub-hosted runners never receive VPS SSH, Docker, WireGuard, database, OAuth, or application-secret access.
 
-This exception automates staging only. It does not deploy from `main`, create production services, promote to production, open mail, or authorize a later workflow/credential/host/policy change. Prompt 06 must review the active staging evidence and choose the production promotion mechanism explicitly; `main` remains CI-only until then.
+This path began as a staging-only exception. Under the separately recorded `DEC-INPUT-024` gate, the equivalent root-owned production timer now deploys only successful `main` candidates to the isolated public application runtime. It does not open internet mail, create production OAuth credentials, enable real-user onboarding, accept offsite backups/monitoring, or authorize a later workflow, credential, host, or policy change.
 
 ## 2. Repository automation
 
