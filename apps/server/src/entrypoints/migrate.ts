@@ -69,12 +69,12 @@ async function migratePgBoss(connectionString: string): Promise<void> {
   }
 }
 
-async function initializeLocalTombstoneState(
+async function initializeCapturedTombstoneState(
   connectionString: string,
-  environment: "development" | "test",
+  environment: "development" | "test" | "staging",
 ): Promise<void> {
   const database = createDatabaseClient({
-    applicationName: "esmii-local-tombstone-state",
+    applicationName: "esmii-captured-tombstone-state",
     connectionString,
     maximumConnections: 1,
     role: "migration",
@@ -105,8 +105,8 @@ async function main(): Promise<void> {
       ? {}
       : { migrationsDirectory: configuration.migrationsDirectory }),
   });
-  if (configuration.appEnvironment === "development" || configuration.appEnvironment === "test") {
-    await initializeLocalTombstoneState(configuration.databaseUrl, configuration.appEnvironment);
+  if (configuration.appEnvironment !== "production") {
+    await initializeCapturedTombstoneState(configuration.databaseUrl, configuration.appEnvironment);
   }
   await migratePgBoss(configuration.databaseUrl);
   process.stdout.write("Database migrations completed.\n");
