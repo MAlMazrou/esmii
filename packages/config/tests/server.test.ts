@@ -123,8 +123,8 @@ describe("server configuration", () => {
     await expect(
       loadHttpServerConfig({
         ...productionEnvironment,
-        AUTH_GOOGLE_CLIENT_ID: "production-client-id",
-        AUTH_GOOGLE_CLIENT_SECRET: "production-client-secret",
+        AUTH_GOOGLE_CLIENT_ID: "synthetic-production-client-id",
+        AUTH_GOOGLE_CLIENT_SECRET: "synthetic-production-client-secret",
         INITIAL_PUBLIC_SHELL_MODE: "true",
       }),
     ).rejects.toThrow("requires production capture mode with no authentication provider");
