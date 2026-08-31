@@ -9,8 +9,9 @@ On 30 August 2026 the user replaced the planned manual application-promotion tri
 - successful `dev` CI publishes immutable full-SHA images, advances only `:dev`, and the VPS staging timer activates them;
 - successful `main` CI publishes immutable full-SHA images, advances only `:main`, and the VPS production timer activates them;
 - both timers resolve mutable convenience pointers to immutable digests, verify OCI source/revision labels, serialize through one host lock, run migrations and health checks, and restore the preceding environment overlay on failure;
-- staging and production keep separate databases, Valkey instances, media roots, credentials, networks, cookies, and captured-mail state;
-- the initial public production application gate does not activate external SMTP, production Google OAuth, real-user onboarding, offsite-backup acceptance, or final hardened-production acceptance.
+- staging and production keep separate databases, Valkey instances, media roots, credentials, networks, cookies, and mail state;
+- the initial public production application gate did not activate external SMTP; the separately approved 31 August 2026 mail gate later selected the production `external` Stalwart overlay while staging remained on Mailpit;
+- production Google OAuth, offsite-backup/restore acceptance, external monitoring acceptance, and final hardened-production acceptance remain inactive.
 
 This current policy controls application delivery where older sections below describe manual exact-staging-digest promotion. The sealed manifest design remains the target for later mail, backup, recovery, and fully accepted production transitions.
 
@@ -499,6 +500,8 @@ Netcup's default Mail block prevents inbound and outbound SMTP and remains enabl
 - private Stalwart administration;
 - signed/idempotent bounce and delivery feedback;
 - low launch quotas, suppression, abuse handling, and monitoring.
+
+**Live mail-gate status (31 August 2026):** production runs the pinned Stalwart image in `external` mode with private administration, authenticated STARTTLS submission, public IPv4 TCP 25, and loopback-only operational IMAPS. `mail.esmii.app` has forward and reverse DNS plus MX, SPF, automatically managed RSA/Ed25519 DKIM records, and monitoring-mode DMARC. Netcup's provider firewall remains active, but its separately approved default outbound mail-block policy was removed; its ping policy was preserved. A production magic-link canary was accepted by Google's MX with SMTP `250` and appeared in the recipient Gmail account. The first message was classified as Spam because the sender was new; after it was moved to Inbox, the fresh superseding link appeared in that Inbox conversation. This proves the application path and recipient receipt, not mature sender reputation or final production acceptance. Resend-specific DNS records were then removed. Staging remains capture-only.
 
 Stalwart is limited to application magic links, invitations, system notifications, and named operational mailboxes such as postmaster, abuse, and support. No marketing, newsletter, campaign, bulk-mail, or general end-user mailbox service is permitted by this blueprint.
 

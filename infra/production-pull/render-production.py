@@ -28,12 +28,13 @@ def render(source: pathlib.Path, destination: pathlib.Path, replacements: dict[s
             '      APP_ENV: production\n      SECURITY_TOMBSTONE_MODE: capture\n      INITIAL_PUBLIC_SHELL_MODE: "true"\n',
             1,
         )
-        contents = re.sub(
-            r"^\s+SMTP_URL_FILE:.*\n",
-            "",
-            contents,
-            flags=re.MULTILINE,
-        )
+        if replacements["@@PRODUCTION_MAIL_MODE@@"] == "capture":
+            contents = re.sub(
+                r"^\s+SMTP_URL_FILE:.*\n",
+                "",
+                contents,
+                flags=re.MULTILINE,
+            )
         contents = re.sub(
             r"^\s+AUTH_GOOGLE_CLIENT_(?:ID|SECRET)_FILE:.*\n",
             "",
@@ -91,6 +92,7 @@ def main() -> int:
     parser.add_argument("--bounce-domain", required=True)
     parser.add_argument("--mail-admin-subnet", required=True)
     parser.add_argument("--stalwart-mail-admin-ip", required=True)
+    parser.add_argument("--mail-mode", required=True, choices=("capture", "external"))
     arguments = parser.parse_args()
 
     for image in (arguments.web_image, arguments.server_image):
@@ -110,7 +112,8 @@ def main() -> int:
         "@@MAIL_DOMAIN@@": arguments.mail_domain,
         "@@MAIL_HOSTNAME@@": arguments.mail_hostname,
         "@@BOUNCE_DOMAIN@@": arguments.bounce_domain,
-        "@@PRODUCTION_MAIL_PORTS_BLOCK@@": "# External SMTP remains disabled during the initial public application launch.",
+        "@@PRODUCTION_MAIL_MODE@@": arguments.mail_mode,
+        "@@PRODUCTION_MAIL_PORTS_BLOCK@@": "# Host publication is defined by the selected production mail overlay.",
     }
     render(
         arguments.source_root / "compose.production.yaml",
@@ -122,14 +125,13 @@ def main() -> int:
         arguments.runtime_root / "caddy" / "sites-enabled" / "production.caddy",
         replacements,
     )
-    render(
-        arguments.source_root / "stalwart" / "config.toml",
-        arguments.runtime_root / "stalwart" / "config.toml",
-        replacements,
-    )
     copy(
         arguments.source_root / "production-pull" / "compose.production.capture.yaml",
         arguments.runtime_root / "compose.production.capture.yaml",
+    )
+    copy(
+        arguments.source_root / "templates" / "compose.production.external.yaml",
+        arguments.runtime_root / "compose.production.external.yaml",
     )
     copy(
         arguments.source_root / "postgres" / "production.conf",

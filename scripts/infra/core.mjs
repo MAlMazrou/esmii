@@ -334,6 +334,7 @@ function tokensForManifest(manifest) {
               "      - name: public-smtp",
               "        target: 25",
               '        published: "25"',
+              "        host_ip: 0.0.0.0",
               "        protocol: tcp",
               "      - name: loopback-imaps",
               "        target: 993",

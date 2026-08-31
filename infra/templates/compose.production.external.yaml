@@ -1,9 +1,19 @@
 services:
+  production-worker:
+    environment:
+      NODE_EXTRA_CA_CERTS: /run/mail-ca/mail.esmii.app.pem
+    volumes:
+      - /srv/myapp/production/stalwart/config/tls/fullchain.pem:/run/mail-ca/mail.esmii.app.pem:ro
+    depends_on:
+      production-stalwart:
+        condition: service_healthy
+
   production-stalwart:
     ports:
       - name: public-smtp
         target: 25
         published: "25"
+        host_ip: 0.0.0.0
         protocol: tcp
       - name: loopback-imaps
         target: 993

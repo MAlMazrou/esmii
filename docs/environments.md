@@ -8,6 +8,8 @@ Staging and production share that machine and the one public Caddy instance, but
 
 Cloudflare remains the registrar and authoritative DNS provider. Netcup supplies compute, SCP/CCP recovery, network/firewall controls, PTR, images, snapshots, and the default mail restriction.
 
+As of 31 August 2026, the separately approved production-mail gate has removed that default mail restriction and activated Stalwart only for production. Staging still captures mail in its private Mailpit and has no route or credential for production SMTP.
+
 ## 2. Environment matrix
 
 | Concern | Development | Staging | Production |
@@ -145,6 +147,8 @@ environments:
 The full staging block and shared-infrastructure digest must be preserved. After production exists, a later qualifying staging-only activation may replace only the staging application block while preserving production. A shared-Caddy/Compose change must be declared and reviewed explicitly as a host-wide transition.
 
 Production uses separate PostgreSQL, Valkey, media, secrets, cookies, OAuth clients, networks, and Stalwart credentials. It starts with `production_edge_mode: restricted`, a DNS-only Cloudflare application record, and the reviewed `<PRELAUNCH_TEST_CIDRS>` Caddy allowlist. A tester completes OAuth through a fixed/VPN egress address in that list; an external disallowed source must receive 403. After all OAuth, mail, backup/restore, monitoring, security, smoke, resource, and rollback gates pass, a new signed activation manifest may select the already reviewed public production fragment only under the separate public-launch approval. It is based on the currently active predecessor, preserving whatever staging block is current and the verified restricted production non-edge block; a staging advance never authorizes rolling staging backward for launch.
+
+The actual public-launch gate was later approved directly, and the production-mail gate is now active in `external` mode. Only IPv4 TCP 25 is publicly published for mail transfer; operational IMAPS remains loopback-only, and Stalwart management remains bound only to the private production mail-admin network. The production worker submits as `noreply@esmii.app` over certificate-verified STARTTLS. This operational status does not waive the still-unresolved backup/restore, monitoring, production Google OAuth, mail-feedback, or final acceptance gates.
 
 ## 7. Branch and promotion model
 

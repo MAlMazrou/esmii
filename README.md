@@ -2,7 +2,7 @@
 
 This repository package defines how an implementation agent should start a small, self-hosted SaaS application on one Netcup server. The selected launch host is an x86 Netcup RS 1000 G12 with 4 dedicated cores, 8 GB ECC RAM, 256 GB NVMe, and IPv4 plus IPv6 connectivity. Staging is deployed from successful `dev` CI and production is deployed independently from successful `main` CI, with immutable image identity and isolated runtime state in both environments. The package contains the agreed requirements, architectural constraints, decisions, execution rules, and numbered implementation sequence.
 
-> **Current status: Prompt 05 is complete, and Prompt 06's initial public application gate is complete.** Successful `dev` CI runs automatically update the isolated staging application at `https://staging.esmii.app`; successful `main` CI runs automatically update the isolated public production application at `https://esmii.app`. Real outbound mail, production Google OAuth, real-user onboarding, offsite-backup acceptance, and the final hardened-production acceptance remain disabled until their separate requirements are completed.
+> **Current status: Prompt 05, Prompt 06's initial public application gate, and the separately approved production-mail gate are complete.** Successful `dev` CI runs automatically update the isolated staging application at `https://staging.esmii.app`; successful `main` CI runs automatically update the isolated public production application at `https://esmii.app`. Production magic-link email is delivered by the self-hosted Stalwart service at `mail.esmii.app`, while staging remains on its private Mailpit. Production Google OAuth, offsite-backup/restore acceptance, external monitoring acceptance, and the final hardened-production acceptance remain disabled until their separate requirements are completed.
 
 Tokens written as `<SEMANTIC_NAME>` are unresolved placeholders, not sample values, and must never be copied into production unchanged. Only rows marked `REQUIRED INPUT` in `docs/decisions.md` must be supplied or approved by the user. SHA/digest/release/evidence/DKIM and similar placeholders are generated, verified, and recorded by the prompt that names them; the agent must not ask the user to invent those values.
 
@@ -254,7 +254,7 @@ The authoritative input register is in [`docs/decisions.md`](./docs/decisions.md
 - fixed production prelaunch tester/VPN egress CIDRs so Caddy can restrict the DNS-only production hostname while browser OAuth callbacks are tested;
 - the Netcup RS 1000 G12 server ID/location, static IPv4, IPv6 subnet, SSH identity, SCP/CCP recovery confirmation, and administrative source IP or VPN;
 - confirmation that the order uses `IPv4 + IPv6 Connectivity`, that Ubuntu 26.04 is available as an SCP image or will be installed from the official ISO, and that the server identity/onboarding checks are complete;
-- confirmation that Netcup's removable `netcup Mail block` remains enabled until production mail approval, that PTR control works in SCP, that low-volume transactional mail is permitted under Netcup's bulk-mail restriction, and that the assigned IP passes reputation checks;
+- confirmation that Netcup's removable `netcup Mail block` remains enabled until production mail approval, followed by a recorded exact removal; confirmation that PTR control works in SCP, that low-volume transactional mail is permitted under Netcup's bulk-mail restriction, and that the assigned IP passes reputation checks;
 - Cloudflare DNS authority and a scoped DNS-01 credential reference for the mail certificate; the domain does not need to move to Netcup;
 - separate Google applications/credentials for production and staging through an approved secret channel;
 - the offsite Restic repository/recovery credential references, the immutable off-Netcup deployment-checkpoint prefix needed before staging activation, and the separate encrypted security-tombstone journal needed before production access-lowering operations;
@@ -262,7 +262,7 @@ The authoritative input register is in [`docs/decisions.md`](./docs/decisions.md
 - the least-privilege GitHub App deployment-status credential (status/UI only), separate read-only GHCR credential, provenance identity, and protected production-promotion identity references;
 - the Netcup abuse-notice response owner and decision on obtaining Netcup's DPA;
 - production sender identities and operational mailboxes;
-- the phase-specific approvals for remote access, host changes, environment activation, provider changes, backup writes, test mail, and final production acceptance. The initial public `main` application automation is recorded in `DEC-INPUT-024`; deferred mail/OAuth/backup gates remain separate.
+- the phase-specific approvals for remote access, host changes, environment activation, provider changes, backup writes, test mail, and final production acceptance. The initial public `main` application automation is recorded in `DEC-INPUT-024`, and the completed production-mail activation is recorded in `DEC-INPUT-025`; OAuth, backup/restore, monitoring, and final acceptance remain separate.
 
 Semantic placeholders may remain during documentation work. A prompt must stop if an unresolved value would materially change what it builds.
 

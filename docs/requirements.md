@@ -1,6 +1,6 @@
 # Requirements: generic SaaS identity core
 
-**Status:** approved documentation baseline; Prompt 04 is completed and locally verified on `dev`. Prompt 05 Gate 7 staging DNS and Google OAuth work is complete after the verified hardening apply; every later Prompt 05 gate and all Prompt 06 actions remain separately unauthorized.  
+**Status:** approved documentation baseline; Prompts 02–05 are implemented, Prompt 06's public application path is active, and its separately approved production-mail gate is active. Production Google OAuth, offsite-backup/restore acceptance, external monitoring acceptance, and final hardened-production acceptance remain separate unresolved gates.
 **Scope:** passwordless identity, organizations, memberships, invitations, authorization, and the supporting application services.  
 **Not defined here:** the application's eventual domain-specific product.
 
