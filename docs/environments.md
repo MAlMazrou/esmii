@@ -77,6 +77,7 @@ Prompt 05 activates only:
 - `staging-web`;
 - private `staging-mailpit`, retained as an operator-only capture service but not used by the staging worker;
 - an isolated staging SMTP credential mounted only in `staging-worker` for account/auth delivery through Stalwart.
+- a staging-owned copy of Stalwart's public TLS trust certificate mounted read-only in `staging-worker`; no mail private key is shared.
 
 The first root-sealed host manifest uses the complete schema in `docs/deployment.md`. Its environment/overlay state includes this abbreviated shape:
 

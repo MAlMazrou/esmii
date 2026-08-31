@@ -152,6 +152,7 @@ services:
       ACTION_LINK_DERIVATION_KEYRING_FILE: /run/secrets/staging_action_link_derivation_keyring
       SMTP_URL_FILE: /run/secrets/staging_stalwart_smtp_url
       MAIL_FROM_ADDRESS: staging@esmii.app
+      NODE_EXTRA_CA_CERTS: /run/mail-ca/mail.esmii.app.pem
       MEDIA_ROOT: /srv/media
       JOB_CONCURRENCY: "1"
       PGBOSS_CREATE_SCHEMA: "false"
@@ -173,6 +174,7 @@ services:
       - /srv/myapp/staging/media/private/variants:/srv/media/private/variants
       - /srv/myapp/staging/media/private/trash:/srv/media/private/trash
       - /srv/myapp/staging/media/public/variants:/srv/media/public/variants:ro
+      - /srv/myapp/staging/mail-ca/mail.esmii.app.pem:/run/mail-ca/mail.esmii.app.pem:ro
     networks:
       - staging-data
       - staging-storage

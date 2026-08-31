@@ -81,6 +81,10 @@ describe("staging pull policy", () => {
     );
     expect(staging).toContain("SMTP_URL_FILE: /run/secrets/staging_stalwart_smtp_url");
     expect(staging).toContain("MAIL_FROM_ADDRESS: staging@esmii.app");
+    expect(staging).toContain("NODE_EXTRA_CA_CERTS: /run/mail-ca/mail.esmii.app.pem");
+    expect(staging).toContain(
+      "/srv/myapp/staging/mail-ca/mail.esmii.app.pem:/run/mail-ca/mail.esmii.app.pem:ro",
+    );
     expect(staging).toContain("- staging-mail-submit");
     expect(staging).not.toContain("- production-mail-submit");
     expect(production).toContain("staging-mail-submit:");

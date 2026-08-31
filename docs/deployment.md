@@ -11,6 +11,7 @@ On 30 August 2026 the user replaced the planned manual application-promotion tri
 - both timers resolve mutable convenience pointers to immutable digests, verify OCI source/revision labels, serialize through one host lock, run migrations and health checks, and restore the preceding environment overlay on failure;
 - staging and production keep separate databases, Valkey instances, media roots, credentials, networks, cookies, and mail state;
 - the separately approved 31 August 2026 mail gate selected the production `external` Stalwart overlay; staging uses only a separate sender/credential on its internal submission network for the two allowlisted testers while its private Mailpit remains operator-only;
+- staging trusts the internal Stalwart endpoint through a staging-owned read-only copy of its public certificate; certificate rotation must refresh that copy before restarting the staging worker, and no Stalwart private key crosses the environment boundary;
 - production Google OAuth, offsite-backup/restore acceptance, external monitoring acceptance, and final hardened-production acceptance remain inactive.
 
 This current policy controls application delivery where older sections below describe manual exact-staging-digest promotion. The sealed manifest design remains the target for later mail, backup, recovery, and fully accepted production transitions.
