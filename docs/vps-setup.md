@@ -34,7 +34,7 @@ Before Prompt 05 remote discovery/provisioning, record:
 - Ubuntu 26.04 stock-image identifier or official ISO URL, checksum, and signature verification record;
 - administrator public key, proposed non-root username, administrative source CIDR or VPN, and emergency recovery contact;
 - Cloudflare zone and the staging-DNS authority/token reference;
-- staging hostname, tester-email allowlist, and staging OAuth-client references;
+- staging hostname, explicit `open`/`allowlist` access mode, and staging OAuth-client references;
 - current Netcup firewall and `netcup Mail block` status;
 - protected `dev`/`main`, GitHub staging/production Environments, GitHub App identity, and read-only GHCR credential plan;
 - immutable deployment-checkpoint storage outside Netcup, its restricted VPS credential, and its separate recovery/policy custodian;

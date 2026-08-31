@@ -68,4 +68,21 @@ describe("staging pull policy", () => {
     expect(preparer).toContain("source.chmod(0o600)");
     expect(preparer).toContain("temporary.chmod(0o444)");
   });
+
+  it("restricts staging explicitly and uses only its scoped Stalwart submission path", async () => {
+    const [staging, production] = await Promise.all([
+      readFile("infra/compose.staging.yaml", "utf8"),
+      readFile("infra/compose.production.yaml", "utf8"),
+    ]);
+
+    expect(staging).toContain("AUTH_STAGING_ACCESS_MODE: allowlist");
+    expect(staging).toContain(
+      "AUTH_STAGING_TESTER_EMAILS_FILE: /run/secrets/staging_tester_allowlist",
+    );
+    expect(staging).toContain("SMTP_URL_FILE: /run/secrets/staging_stalwart_smtp_url");
+    expect(staging).toContain("MAIL_FROM_ADDRESS: staging@esmii.app");
+    expect(staging).toContain("- staging-mail-submit");
+    expect(staging).not.toContain("- production-mail-submit");
+    expect(production).toContain("staging-mail-submit:");
+  });
 });

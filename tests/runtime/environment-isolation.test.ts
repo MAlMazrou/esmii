@@ -19,6 +19,7 @@ describe("runtime configuration isolation", () => {
       APP_ENV: "staging",
       APP_PUBLIC_ORIGIN: "https://staging.esmii.app",
       APP_VALKEY_URL: stagingValkey,
+      AUTH_STAGING_ACCESS_MODE: "allowlist",
       AUTH_STAGING_TESTER_EMAILS: "synthetic-tester@example.test",
       BETTER_AUTH_SECRET: stagingAuthMarker,
       OPERATIONS_HEALTH_TOKEN: stagingMarker,

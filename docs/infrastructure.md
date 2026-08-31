@@ -7,12 +7,12 @@
 
 ## 1. The final recommendation
 
-**Current production gates (30–31 August 2026):** the user authorized public `esmii.app` immediately and the same CI-gated outbound pull behavior for `main` that `dev` uses for staging. Production uses separate PostgreSQL, Valkey, media, credentials, networks, and mail state. On 31 August the user separately required a self-hosted mail server; production switched from its isolated capture sink to Stalwart and a real magic-link canary was delivered, while staging remained on private Mailpit. Production Google OAuth, offsite-backup/restore acceptance, external monitoring acceptance, and final hardened-production acceptance remain later gates. These current delivery decisions supersede older manual/restricted or capture-only wording below where they conflict; the isolation and eventual hardened-service requirements remain.
+**Current production gates (30–31 August 2026):** the user authorized public `esmii.app` immediately and the same CI-gated outbound pull behavior for `main` that `dev` uses for staging. Production uses separate PostgreSQL, Valkey, media, credentials, networks, and mail state. On 31 August the user separately required a self-hosted mail server; Stalwart was activated and a real magic-link canary was delivered. Staging has its own sender, credential, and internal submission network for exactly two user-selected testers while retaining private Mailpit for operator capture. Production Google OAuth, offsite-backup/restore acceptance, external monitoring acceptance, and final hardened-production acceptance remain later gates. These current delivery decisions supersede older manual/restricted or capture-only wording below where they conflict; the isolation and eventual hardened-service requirements remain.
 
 Start with one pnpm monorepo containing the frontend, modular-monolith backend, worker/migration entrypoints, shared packages, infrastructure, tests, CI/CD, and runbooks. Deploy with Docker Compose. The first remote release runs reduced staging; the next approved release adds production while retaining staging. The full 8 GB composition has one shared Caddy plus six staging services and six production services:
 
 1. shared Caddy;
-2. staging web, API, worker, PostgreSQL, Valkey, and Mailpit;
+2. staging web, API, worker, PostgreSQL, Valkey, retained private Mailpit, and the separately credentialed Stalwart submission path used for allowlisted testers;
 3. production web, API, worker, PostgreSQL, Valkey, and Stalwart.
 
 Migration entrypoints are one-shot jobs, not long-running containers. If a media feature is later approved, files live in environment-specific host filesystem roots with physically separate public and private trees. PostgreSQL stores metadata and ownership, not ordinary media bytes. SeaweedFS or another S3-compatible service remains deferred until measured product need and an approved resource plan; starting with 8 GB is not permission to enable it.
@@ -153,7 +153,7 @@ The version numbers below are a dated implementation baseline, not permission to
 | Queue and scheduler | application outbox + pg-boss | 12.28.0 / schema 38 | The API writes only its own outbox; the worker owns queue runtime access and a separate migration command owns pg-boss DDL |
 | Realtime | Socket.IO | current supported 4.x patch | Runs in Fastify now; Valkey adapter can be added before API replica 2 |
 | HTTP edge | Caddy | 2.11.4 baseline | Automatic TLS, HTTP reverse proxy, WebSocket proxy, headers, compression, and logs |
-| Mail | Stalwart | 0.16.19 | Low-volume production transactional/account mail plus named operational mailboxes only; development/staging use Mailpit; Netcup bulk/marketing mail is excluded |
+| Mail | Stalwart | 0.16.19 | Low-volume transactional/account mail plus named operational mailboxes only; staging uses a separate sender/credential for allowlisted testers, development uses Mailpit, and Netcup bulk/marketing mail is excluded |
 | Media processing | Sharp/libvips | pinned | Streaming image validation, re-encoding, metadata stripping, and variants |
 | Object storage | Local filesystem first; SeaweedFS optional | pin tested release | Local storage saves RAM now; SeaweedFS supplies an S3 endpoint later |
 | Tests | Vitest, Fastify inject, Playwright | pinned | Unit, integration, and end-to-end coverage |
@@ -476,9 +476,10 @@ Use Compose layering rather than maintaining unrelated files:
 - an additive extension of the base `caddy` service that joins only `staging-edge` and mounts only `/srv/myapp/staging/media/public/variants` at `/srv/staging-public-media` read-only;
 - mounts/enables only the staging Caddy site fragment; the Prompt 05 render contains no production hostname, upstream, media mount, or certificate request;
 - the first remote public Caddy ports (80/443 and optional 443/udp), declared once with `!override` so array merging cannot duplicate or retain development bindings;
-- no production bind mounts, networks, databases, Valkey ACLs, SMTP credentials, DKIM keys, or backup repository;
+- no production bind mounts, databases, Valkey ACLs, worker SMTP credential, DKIM keys, or backup repository;
 - no public SMTP/IMAP ports and no direct internet delivery;
-- a staging-only Mailpit instance with no production SMTP credential;
+- a staging-only Mailpit instance retained privately for operator capture/debugging;
+- a separately scoped staging sender/credential attached to the internal Stalwart submission network for allowlisted account/auth mail;
 - smaller test quotas and data that may be destroyed without affecting production.
 
 **infra/compose.production.yaml**
@@ -711,7 +712,7 @@ These limits total roughly 3.9 GB and are starting caps, not universal truth. Po
 - **worker-egress:** absent at launch. Add a narrowly controlled worker-only egress network only when a separately approved integration requires direct outbound access.
 - **mailbox-public/storage-edge:** absent at launch; optional overlays expose only their intended data listeners to Caddy.
 
-Caddy must not join data, storage-internal, mail-events, mail-admin, or mail-submit networks and must never mount the Docker socket. The web container must never receive database, Valkey, SMTP, object-admin, backup, or migration credentials. The worker has no public listener. A service attached to multiple networks **and requiring internet egress** must declare its intended non-internal default gateway with `gw_priority`; verify the resulting route from the running container rather than relying on network-name or attachment order. The launch worker is deliberately attached only to internal data/storage/mail-submit networks, has no non-internal gateway, and must fail direct external DNS/HTTP/SMTP reachability; it submits mail only to Stalwart. Apply the same no-egress rule to the staging worker, which submits only to Mailpit.
+Caddy must not join data, storage-internal, mail-events, mail-admin, or mail-submit networks and must never mount the Docker socket. The web container must never receive database, Valkey, SMTP, object-admin, backup, or migration credentials. The worker has no public listener. A service attached to multiple networks **and requiring internet egress** must declare its intended non-internal default gateway with `gw_priority`; verify the resulting route from the running container rather than relying on network-name or attachment order. Production and staging workers are deliberately attached only to their own internal data/storage/mail-submit networks, have no non-internal gateway, and must fail direct external DNS/HTTP/SMTP reachability; each submits only to Stalwart with its own credential.
 
 ### Persistent paths
 
@@ -2019,7 +2020,7 @@ Only after the separate activation approval may the wrapper pull images or start
 
 ### Step 10: activate staging application, then stop Prompt 05
 
-Start staging worker/API/web and shared Caddy, then verify staging HTTPS, exact OAuth callbacks, tester allowlist, noindex behavior, private Mailpit, auth/organization authorization, Socket.IO, environment isolation, resource headroom, reboot, and rollback. Establish the protected `dev` → staging outbound deployment-reconciler flow. Do not start production or Stalwart in Prompt 05.
+The original Prompt 05 activation verified staging HTTPS, exact OAuth callbacks, tester allowlist, noindex behavior, private Mailpit, auth/organization authorization, Socket.IO, environment isolation, resource headroom, reboot, and rollback. The user's latest 31 August 2026 instruction keeps staging in explicit allowlist mode with exactly two root-only tester addresses, retains `noindex`, and uses a separate Stalwart sender/credential for their account/auth delivery. The protected `dev` → staging outbound deployment flow remains unchanged.
 
 ### Step 11: seal production and prepare Stalwart privately in Prompt 06
 

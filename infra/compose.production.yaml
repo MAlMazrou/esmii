@@ -292,6 +292,9 @@ services:
       production-mail-submit:
         aliases:
           - "@@MAIL_HOSTNAME@@"
+      staging-mail-submit:
+        aliases:
+          - "@@MAIL_HOSTNAME@@"
       production-mail-events:
       production-mail-admin:
         ipv4_address: "@@STALWART_MAIL_ADMIN_IP@@"
@@ -324,6 +327,8 @@ networks:
   production-storage:
     internal: true
   production-mail-submit:
+    internal: true
+  staging-mail-submit:
     internal: true
   production-mail-events:
     internal: true

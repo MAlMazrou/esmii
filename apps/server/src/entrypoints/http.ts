@@ -80,6 +80,7 @@ async function main(): Promise<void> {
       ...(configuration.appEnvironment === "staging"
         ? {
             isMagicLinkRecipientAllowed: (email: string) =>
+              configuration.authentication.stagingAccessMode === "open" ||
               configuration.authentication.stagingTesterEmails.has(email),
           }
         : {}),

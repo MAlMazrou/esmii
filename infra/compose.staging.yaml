@@ -97,6 +97,7 @@ services:
       APP_PUBLIC_ORIGIN: "https://@@STAGING_APP_DOMAIN@@"
       APP_DATABASE_URL_FILE: /run/secrets/staging_api_database_url
       APP_VALKEY_URL_FILE: /run/secrets/staging_api_valkey_url
+      AUTH_STAGING_ACCESS_MODE: allowlist
       AUTH_STAGING_TESTER_EMAILS_FILE: /run/secrets/staging_tester_allowlist
       AUTH_GOOGLE_CLIENT_ID_FILE: /run/secrets/staging_auth_google_client_id
       AUTH_GOOGLE_CLIENT_SECRET_FILE: /run/secrets/staging_auth_google_client_secret
@@ -149,7 +150,8 @@ services:
       APP_DATABASE_URL_FILE: /run/secrets/staging_worker_database_url
       APP_VALKEY_URL_FILE: /run/secrets/staging_worker_valkey_url
       ACTION_LINK_DERIVATION_KEYRING_FILE: /run/secrets/staging_action_link_derivation_keyring
-      SMTP_URL: smtp://staging-mailpit:1025
+      SMTP_URL_FILE: /run/secrets/staging_stalwart_smtp_url
+      MAIL_FROM_ADDRESS: staging@esmii.app
       MEDIA_ROOT: /srv/media
       JOB_CONCURRENCY: "1"
       PGBOSS_CREATE_SCHEMA: "false"
@@ -164,6 +166,7 @@ services:
       - staging_worker_database_url
       - staging_worker_valkey_url
       - staging_action_link_derivation_keyring
+      - staging_stalwart_smtp_url
     volumes:
       - /srv/myapp/staging/media/private/incoming:/srv/media/private/incoming
       - /srv/myapp/staging/media/private/originals:/srv/media/private/originals
@@ -173,14 +176,12 @@ services:
     networks:
       - staging-data
       - staging-storage
-      - staging-mail
+      - staging-mail-submit
     depends_on:
       staging-postgres:
         condition: service_healthy
       staging-valkey:
         condition: service_healthy
-      staging-mailpit:
-        condition: service_started
     stop_grace_period: 120s
     mem_limit: 192m
     pids_limit: 256
@@ -322,6 +323,8 @@ networks:
     internal: true
   staging-operator:
     internal: true
+  staging-mail-submit:
+    internal: true
 
 volumes:
   staging-postgres-data:
@@ -356,6 +359,8 @@ secrets:
     file: /etc/myapp/runtime-secrets/staging/better-auth-secret
   staging_action_link_derivation_keyring:
     file: /etc/myapp/runtime-secrets/staging/action-link-derivation-keyring
+  staging_stalwart_smtp_url:
+    file: /etc/myapp/runtime-secrets/staging/stalwart-smtp-url
   staging_tester_allowlist:
     file: /etc/myapp/runtime-secrets/staging/tester-allowlist
   staging_auth_google_client_id:

@@ -29,6 +29,7 @@ export async function createApiAuth(input: {
     ...(input.environment === "staging"
       ? {
           validateSocialIdentity: ({ email }: { email: string }) =>
+            input.authentication.stagingAccessMode === "open" ||
             input.authentication.stagingTesterEmails.has(email),
         }
       : {}),

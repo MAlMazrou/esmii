@@ -39,6 +39,7 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(description="Create the root-only Esmii staging secret set.")
     parser.add_argument("--oauth-json", required=True, type=pathlib.Path)
+    parser.add_argument("--smtp-url-file", required=True, type=pathlib.Path)
     parser.add_argument("--tester-email", action="append", required=True)
     arguments = parser.parse_args()
 
@@ -113,6 +114,16 @@ def main() -> int:
     private_write_if_missing(root / "tester-allowlist", f"{','.join(testers)}\n")
     private_write_if_missing(root / "auth-google-client-id", f"{client_id}\n")
     private_write_if_missing(root / "auth-google-client-secret", f"{client_secret}\n")
+    smtp_url = arguments.smtp_url_file.read_text(encoding="utf-8").strip()
+    parsed_smtp_url = urllib.parse.urlsplit(smtp_url)
+    if (
+        parsed_smtp_url.scheme not in {"smtp", "smtps"}
+        or not parsed_smtp_url.hostname
+        or not parsed_smtp_url.username
+        or not parsed_smtp_url.password
+    ):
+        raise ValueError("staging SMTP URL must contain an authenticated smtp or smtps endpoint")
+    private_write_if_missing(root / "stalwart-smtp-url", f"{smtp_url}\n")
 
     for path in root.iterdir():
         if path.is_file() and not path.is_symlink():

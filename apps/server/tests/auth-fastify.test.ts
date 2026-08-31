@@ -139,7 +139,7 @@ describe("Better Auth Fastify boundary", () => {
     expect(response.statusCode).toBe(303);
     expect(response.headers.location).toBe("/sign-in/result");
     expect(response.headers["set-cookie"]).toBe(
-      "__Host-esmii.auth-result=provider_failed; Path=/api/auth/result; HttpOnly; SameSite=Lax; Max-Age=120; Secure",
+      "__Secure-esmii.auth-result=provider_failed; Path=/api/auth/result; HttpOnly; SameSite=Lax; Max-Age=120; Secure",
     );
     expect(response.headers["x-provider-debug"]).toBeUndefined();
     expect(

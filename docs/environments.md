@@ -8,7 +8,7 @@ Staging and production share that machine and the one public Caddy instance, but
 
 Cloudflare remains the registrar and authoritative DNS provider. Netcup supplies compute, SCP/CCP recovery, network/firewall controls, PTR, images, snapshots, and the default mail restriction.
 
-As of 31 August 2026, the separately approved production-mail gate has removed that default mail restriction and activated Stalwart only for production. Staging still captures mail in its private Mailpit and has no route or credential for production SMTP.
+As of 31 August 2026, the separately approved mail gate has removed that default mail restriction and activated Stalwart. Staging submits account/auth mail only for its two allowlisted testers through a separate staging sender and SMTP credential; it does not receive the production worker credential. Its private Mailpit remains non-public but is no longer the staging worker's delivery route.
 
 ## 2. Environment matrix
 
@@ -20,7 +20,7 @@ As of 31 August 2026, the separately approved production-mail gate has removed t
 | Public edge | local port | shared Caddy, staging hostname | shared Caddy, production hostname |
 | PostgreSQL | `development-postgres` | `staging-postgres` | `production-postgres` |
 | Valkey | `development-valkey` | `staging-valkey` | `production-valkey` |
-| Email | Mailpit | separate Mailpit | isolated non-delivering capture initially; Stalwart only after mail approval |
+| Email | Mailpit | separate Stalwart sender/credential for allowlisted testers; private Mailpit retained | Stalwart after mail approval |
 | Security tombstones | local capture/fault adapter | isolated capture/fault adapter | isolated capture initially; encrypted append-only off-Netcup journal after its gate |
 | Auth secret/cookie | development-only | staging-only | production-only |
 | OAuth clients | optional local Google | staging-only Google client | disabled initially; separate production-only Google client after its gate |
@@ -28,7 +28,7 @@ As of 31 August 2026, the separately approved production-mail gate has removed t
 | Data retention | disposable | disposable test data | durable customer data |
 | Backup | none | excluded from production Restic dataset | Restic repository outside Netcup |
 | Deployment source | working tree | successful protected `dev` candidate | successful protected `main` candidate |
-| User access | developer | tester allowlist | public empty shell; real-user onboarding disabled until production auth/mail gates |
+| User access | developer | exactly two user-selected tester addresses; `noindex` retained | public application; provider availability remains environment-configured |
 
 ## 3. Rules that apply everywhere
 
@@ -38,7 +38,7 @@ As of 31 August 2026, the separately approved production-mail gate has removed t
 - `/api/health/live` and `/api/health/ready` are public and minimal. `/api/health/dependencies` requires operator authorization and must not disclose credentials or sensitive topology.
 - Only prepared, public, content-hashed media variants may be served by Caddy. Private media always passes through Fastify authorization.
 - Environment-prefixed containers, volumes, networks, credentials, cookies, OAuth clients, and filesystem roots are mandatory.
-- Development/staging email cannot route through production Stalwart. The initial public production shell may use its own isolated non-delivering capture sink; accepted production mail uses Stalwart only after the mail gate.
+- Development cannot route through Stalwart. Staging may use only its separately scoped sender and credential for allowlisted tester account mail; it cannot read or mount the production worker SMTP credential.
 - Development/staging cannot receive the production security-tombstone journal credential or route; only production API receives its create-only identity, while recovery/read/delete authority remains off-host.
 - Runtime roles cannot perform database migrations. API and worker use separate database roles and separate Valkey ACL users.
 - Workers have no public default route. APIs receive only the egress explicitly required by product behavior.
@@ -75,7 +75,8 @@ Prompt 05 activates only:
 - `staging-worker` with concurrency 1;
 - `staging-api`;
 - `staging-web`;
-- private `staging-mailpit`.
+- private `staging-mailpit`, retained as an operator-only capture service but not used by the staging worker;
+- an isolated staging SMTP credential mounted only in `staging-worker` for account/auth delivery through Stalwart.
 
 The first root-sealed host manifest uses the complete schema in `docs/deployment.md`. Its environment/overlay state includes this abbreviated shape:
 
@@ -100,17 +101,17 @@ Production secrets, volumes, databases, cache, media roots, OAuth clients, Stalw
 
 ### Staging access
 
-The staging application may be reachable by HTTPS so the Google callback works. It is still restricted by:
+The staging application is reachable by HTTPS for the Google callback and permits only the two user-selected tester addresses. It remains bounded by:
 
-- a server-side tester-email allowlist applied before account/session creation;
+- an explicit server-side `allowlist` mode with a non-empty root-only tester set applied to both email and Google sign-in;
 - host-only staging cookies with a unique name and signing secret;
 - `X-Robots-Tag: noindex, nofollow, noarchive` and an appropriate `robots.txt`;
 - no production data;
 - an optional Cloudflare Access layer only if it is proven not to break OAuth callbacks or automated tests.
 
-Mailpit, database/cache ports, deployment controls, dependency health, and administration remain private through an approved admin VPN/SSH tunnel or source allowlist.
+Mailpit, database/cache ports, deployment controls, dependency health, Stalwart management, and administration remain private through their existing network/VPN boundaries.
 
-GitHub-hosted runners do not SSH to the host. Post-deployment smoke tests run locally on the VPS through the root-owned reconciler and report GitHub Deployment status outbound over HTTPS. Browser E2E from CI may target the HTTPS staging hostname only with a dedicated allowlisted test account; it receives no administrative network access.
+GitHub-hosted runners do not SSH to the host. Post-deployment smoke tests run locally on the VPS through the root-owned reconciler and report GitHub Deployment status outbound over HTTPS. Browser E2E from CI may target the public HTTPS staging hostname with synthetic data; it receives no administrative network access.
 
 ## 6. Production activation
 
@@ -186,7 +187,7 @@ Before production activation, prove all of the following:
 - neither environment can mount the other's media roots;
 - cookies differ in hostname, name, and signature and are rejected cross-environment;
 - OAuth applications and callback origins are separate;
-- staging has no production SMTP, Stalwart, Restic, security-tombstone-journal, or production signing credential;
+- staging has no production SMTP credential, `production-mail-submit` access, Restic credential, security-tombstone journal, or production signing credential; its separate SMTP identity reaches Stalwart only through `staging-mail-submit`;
 - staging Mailpit is not public;
 - production backups exclude staging;
 - production activation does not recreate or alter staging containers/state/digests; shared Caddy may reload, but its staging fragment/digest and behavior remain unchanged;
@@ -239,7 +240,7 @@ If normal operation cannot retain headroom, optimize first, then use a compatibl
 - `main` advances only after verified production and follows the documented rollback rule.
 - GitHub-hosted runners never require inbound host SSH.
 - Cross-environment access tests fail in every forbidden direction.
-- Staging captures mail in private Mailpit; only production can use Stalwart.
+- Development captures mail in Mailpit. Staging and production submit through Stalwart only with separate senders, credentials, and internal submission networks; staging remains limited to its two allowlisted testers.
 - Netcup's Mail block remains in place until the Prompt 06 mail gate.
 - Production Restic data leaves Netcup and passes an isolated restore test.
 - The combined host remains within memory, disk, CPU, and rollback headroom thresholds.
