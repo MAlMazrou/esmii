@@ -92,7 +92,7 @@ Pull requests run:
 - dependency and container scanning;
 - application E2E tests where practical.
 
-Workflow supply-chain policy is day-one: set top-level `permissions: {}` and grant each job only its required scopes; pin every third-party action to a reviewed full commit SHA; let Dependabot/Renovate propose reviewed pin updates; never run untrusted code with secrets through `pull_request_target`; and release environment secrets only after protected checks/approvals. Reusable workflows inherit no broader token permission than their caller needs.
+Workflow supply-chain policy is day-one: set top-level `permissions: {}` and grant each job only its required scopes; pin every third-party action to a reviewed full commit SHA; perform dependency and action updates manually, one reviewed change at a time; never run untrusted code with secrets through `pull_request_target`; and release environment secrets only after protected checks/approvals. Automated dependency-update bots and their branch/PR creation remain disabled. Reusable workflows inherit no broader token permission than their caller needs.
 
 Protect `dev` with required reviews/checks and disallow direct or force pushes. Feature work merges into `dev`.
 

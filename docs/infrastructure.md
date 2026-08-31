@@ -360,7 +360,6 @@ myapp/
 │   │   ├── deploy-staging.yaml          # Protected dev candidate to staging
 │   │   ├── promote-production.yaml      # Manual exact-digest promotion
 │   │   └── rollback-production.yaml     # Forward-recorded rollback workflow
-│   └── dependabot.yml
 │
 ├── .dockerignore
 ├── .env.example                         # Names and safe examples, no secrets
