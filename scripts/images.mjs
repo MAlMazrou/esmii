@@ -187,7 +187,12 @@ function runRuntimeFixture({ environmentName, image, kind, port }) {
       `OPERATIONS_HEALTH_TOKEN=INERT_${environmentName.toUpperCase()}_RUNTIME_FIXTURE_TOKEN_0001`,
     );
     if (environmentName === "staging") {
-      arguments_.push("--env", "AUTH_STAGING_TESTER_EMAILS=synthetic.tester@example.invalid");
+      arguments_.push(
+        "--env",
+        "AUTH_STAGING_ACCESS_MODE=allowlist",
+        "--env",
+        "AUTH_STAGING_TESTER_EMAILS=synthetic.tester@example.invalid",
+      );
     }
     if (environmentName === "production") {
       arguments_.push("--env", "INITIAL_PUBLIC_SHELL_MODE=true");

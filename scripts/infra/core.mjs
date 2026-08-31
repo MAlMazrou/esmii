@@ -681,13 +681,17 @@ export function validateRenderedHostCompose(configuration, manifest) {
         ...Object.values(service.environment ?? {}).map(String),
       ];
       if (
-        references.some(
-          (reference) =>
-            reference.startsWith(`${forbidden}-`) ||
-            reference.startsWith(`${forbidden}_`) ||
-            reference.includes(`/srv/myapp/${forbidden}/`) ||
-            reference.includes(`/etc/myapp/secrets/${forbidden}/`),
-        )
+        references.some((reference) => {
+          const isScopedStagingSubmissionNetwork =
+            name === "production-stalwart" && reference === "staging-mail-submit";
+          return (
+            !isScopedStagingSubmissionNetwork &&
+            (reference.startsWith(`${forbidden}-`) ||
+              reference.startsWith(`${forbidden}_`) ||
+              reference.includes(`/srv/myapp/${forbidden}/`) ||
+              reference.includes(`/etc/myapp/secrets/${forbidden}/`))
+          );
+        })
       ) {
         fail(`${name} references ${forbidden}`);
       }
