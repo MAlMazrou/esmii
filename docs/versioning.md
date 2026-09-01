@@ -29,7 +29,7 @@ Every accepted push or merge to protected `main` starts [`.github/workflows/rele
 
 1. Check the new commit message and install the frozen dependency graph.
 2. Run [`scripts/release-version.mjs`](../scripts/release-version.mjs), which reads commits since the latest `vX.Y.Z` tag and applies the pre-1.0 policy in [`scripts/version-policy.mjs`](../scripts/version-policy.mjs).
-3. Use the pinned `commit-and-tag-version` package to update `package.json`, generate or update `CHANGELOG.md`, and create a provisional tag.
+3. Use the pinned `commit-and-tag-version` package to update `package.json` and generate or update `CHANGELOG.md`, then apply the repository formatter before creating the provisional release result.
 4. Push those files on a short-lived bot branch and merge a `chore(release): vX.Y.Z` pull request through protected `main` using the `github-actions[bot]` identity.
 5. Attach the immutable `vX.Y.Z` tag to the resulting protected-main commit.
 6. Merge the released protected-main ancestry back into `dev`, then synchronize `package.json` and `CHANGELOG.md` so both long-lived branches start their next work from the same released version.

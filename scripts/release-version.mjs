@@ -38,6 +38,18 @@ try {
   }
   run("corepack", arguments_, { stdio: "inherit" });
 
+  // The changelog generator intentionally emits its own Markdown style. Apply
+  // the repository formatter before the release commit becomes immutable so
+  // the exact tagged tree passes the same lint gate as ordinary source work.
+  run("corepack", ["pnpm", "exec", "prettier", "--write", "package.json", "CHANGELOG.md"], {
+    stdio: "inherit",
+  });
+  if (run("git", ["status", "--porcelain", "--", "package.json", "CHANGELOG.md"]) !== "") {
+    run("git", ["add", "package.json", "CHANGELOG.md"]);
+    run("git", ["commit", "--amend", "--no-edit"]);
+    run("git", ["tag", "--force", expectedVersion]);
+  }
+
   const version = readPublicAppVersion();
   if (version !== expectedVersion) {
     throw new Error(`Expected ${expectedVersion}, but release preparation created ${version}.`);
