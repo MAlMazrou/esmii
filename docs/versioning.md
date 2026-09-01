@@ -32,7 +32,7 @@ Every accepted push or merge to protected `main` starts [`.github/workflows/rele
 3. Use the pinned `commit-and-tag-version` package to update `package.json`, generate or update `CHANGELOG.md`, and create a provisional tag.
 4. Push those files on a short-lived bot branch and merge a `chore(release): vX.Y.Z` pull request through protected `main` using the `github-actions[bot]` identity.
 5. Attach the immutable `vX.Y.Z` tag to the resulting protected-main commit.
-6. Synchronize `package.json` and `CHANGELOG.md` to `dev` so both long-lived branches start their next work from the same released version.
+6. Merge the released protected-main ancestry back into `dev`, then synchronize `package.json` and `CHANGELOG.md` so both long-lived branches start their next work from the same released version.
 7. Explicitly dispatch the production build from tagged `main` and the staging build from synchronized `dev`.
 
 The CI workflow no longer builds a direct `main` push. It accepts production only after the release commit and tag exist. This guarantees that the version bump happens before `next build` and before deployment. A failed release preparation or merge produces no tag and dispatches no deployable build.

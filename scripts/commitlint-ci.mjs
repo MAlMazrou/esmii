@@ -45,12 +45,12 @@ function candidateCommits(document) {
   } else if (eventName === "push") {
     const before = document.before;
     revisionArguments = /^0{40}$/u.test(before)
-      ? ["rev-list", "--reverse", document.after, "--max-count=1"]
-      : ["rev-list", "--reverse", `${before}..${document.after}`];
+      ? ["rev-list", "--first-parent", "--reverse", document.after, "--max-count=1"]
+      : ["rev-list", "--first-parent", "--reverse", `${before}..${document.after}`];
   } else if (eventName === "workflow_dispatch") {
     revisionArguments = ["rev-list", "--reverse", process.env.GITHUB_SHA, "--max-count=1"];
   } else {
-    revisionArguments = ["rev-list", "--reverse", `${baseline}..HEAD`];
+    revisionArguments = ["rev-list", "--first-parent", "--reverse", `${baseline}..HEAD`];
   }
 
   const output = git(revisionArguments);

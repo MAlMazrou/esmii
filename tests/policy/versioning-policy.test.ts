@@ -55,4 +55,9 @@ describe("semantic release policy", () => {
     expect(documentation).toContain("apps/web/components/app-version.tsx");
     expect(documentation).toContain("CHANGELOG.md");
   });
+
+  it("checks only newly pushed first-parent history after a branch merge", async () => {
+    const commitlint = await readFile("scripts/commitlint-ci.mjs", "utf8");
+    expect(commitlint).toContain('"rev-list", "--first-parent", "--reverse"');
+  });
 });
