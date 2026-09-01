@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.1.2](https://github.com/MAlMazrou/esmii/compare/v0.1.1...v0.1.2) (2026-09-01)
+
+### Bug Fixes
+
+- validate evolving release versions ([2a2d3a9](https://github.com/MAlMazrou/esmii/commit/2a2d3a940ed4f1601336082025525073c3aec816))
+
 ## [0.1.1](https://github.com/MAlMazrou/esmii/compare/v0.1.0...v0.1.1) (2026-09-01)
 
 ### Bug Fixes
