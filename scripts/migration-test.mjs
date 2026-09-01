@@ -7,6 +7,7 @@ import {
   formatLocalDockerCommand,
   spawnLocalDocker,
 } from "./local-docker.mjs";
+import { withAppVersionEnvironment } from "./app-version.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const projectName = `esmii-migration-test-${randomBytes(4).toString("hex")}`;
@@ -15,7 +16,7 @@ const composeFiles = [
   join(root, "infra", "compose.yaml"),
   join(root, "infra", "compose.development.yaml"),
 ];
-const docker = createLocalDockerInvocation();
+const docker = createLocalDockerInvocation({ environment: withAppVersionEnvironment() });
 
 const baseArguments = ["compose", "--project-name", projectName, "--env-file", envPath];
 for (const file of composeFiles) baseArguments.push("-f", file);

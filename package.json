@@ -1,6 +1,6 @@
 {
   "name": "@esmii/root",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.21.0",
@@ -10,6 +10,7 @@
   },
   "scripts": {
     "preinstall": "node scripts/enforce-toolchain.mjs",
+    "commitlint": "node scripts/commitlint-ci.mjs",
     "dev:prepare": "node scripts/development-environment.mjs prepare",
     "dev:reset": "node scripts/development-environment.mjs reset",
     "dev": "pnpm dev:prepare && node scripts/compose.mjs up",
@@ -37,6 +38,9 @@
     "release:build-application-payload": "node scripts/application-payload.mjs",
     "release:build-staging-manifest": "node scripts/staging-manifest.mjs",
     "release:build-staging-bundle": "node scripts/staging-release-bundle.mjs",
+    "release:prepare": "node scripts/release-version.mjs",
+    "version:print": "node scripts/app-version.mjs",
+    "version:verify": "node scripts/app-version.mjs verify",
     "test:e2e": "playwright test",
     "test:infra": "vitest run tests/infra",
     "test:security": "vitest run tests/infra/security.test.mjs",
@@ -51,9 +55,12 @@
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:integration && pnpm test:runtime-config && pnpm scan:secrets && pnpm test:policy && pnpm test:infra && pnpm infra:validate-templates && pnpm infra:verify-shared-payload && pnpm infra:config"
   },
   "devDependencies": {
+    "@commitlint/cli": "21.2.2",
+    "@commitlint/config-conventional": "21.2.2",
     "@eslint/js": "10.0.1",
     "@playwright/test": "1.62.1",
     "@types/node": "24.13.3",
+    "commit-and-tag-version": "13.1.2",
     "eslint": "10.9.1",
     "prettier": "3.9.6",
     "typescript": "6.0.3",

@@ -27,7 +27,7 @@ As of 31 August 2026, the separately approved mail gate has removed that default
 | Media roots | disposable local | `/srv/myapp/staging/media/{public,private}` | `/srv/myapp/production/media/{public,private}` |
 | Data retention | disposable | disposable test data | durable customer data |
 | Backup | none | excluded from production Restic dataset | Restic repository outside Netcup |
-| Deployment source | working tree | successful protected `dev` candidate | successful protected `main` candidate |
+| Deployment source | working tree | successful protected `dev` candidate | successful tagged and versioned protected `main` candidate |
 | User access | developer | exactly two user-selected tester addresses; `noindex` retained | public application; provider availability remains environment-configured |
 
 ## 3. Rules that apply everywhere
@@ -116,7 +116,7 @@ GitHub-hosted runners do not SSH to the host. Post-deployment smoke tests run lo
 
 ## 6. Production activation
 
-For the current initial application gate, successful `main` CI publishes immutable full-SHA images and advances `:main`; the separate production timer resolves the pointers to digests, verifies labels, and activates only production. It starts publicly at `esmii.app` with an isolated non-delivering capture sink and Google OAuth disabled. This is the user's 30 August 2026 override of the older restricted/manual application-promotion sequence below; the sealed sequence remains the target for final mail, backup, recovery, and hardened-production acceptance.
+For the current initial application gate, an accepted `main` change is first converted into a bot-owned semantic release commit and immutable `vX.Y.Z` tag. Only that tagged revision is dispatched to CI; successful CI publishes immutable full-SHA images and advances `:main`. The separate production timer resolves the pointers to digests, verifies source/revision/version labels, and activates only production. It starts publicly at `esmii.app` with Google OAuth disabled. This is the user's 30 August 2026 branch-automation decision plus the 1 September 2026 pre-build versioning requirement; the sealed sequence remains the target for final backup, recovery, and hardened-production acceptance.
 
 Prompt 06 promotes the exact currently active staging-tested application-payload and image digests. It does not rebuild them. It creates a new signed production activation manifest because the host transition adds `infra/compose.production.yaml` while keeping staging active. The manifest references one unchanged shared-infrastructure payload plus a separate application payload in each environment block; its digest/signature live in the external deployment/sealed-release envelope to avoid a self-hash. Its abbreviated environment/overlay state is:
 
@@ -158,8 +158,9 @@ The actual public-launch gate was later approved directly, and the production-ma
 - A successful `dev` candidate is built once, tested, published to GHCR by digest, and deployed to staging.
 - After Prompt 05 explicitly activates the narrow ongoing policy, later qualifying protected-`dev` candidates may deploy automatically through the unchanged signed/reconciled path; workflow, credential, provider, secret, or policy changes require new approval.
 - The staging release record stores source SHA, immutable shared-infrastructure and staging-application payload digests, staging activation-manifest digest, image digests, test results, and deployment status.
-- Successful `main` push CI publishes a separate immutable production candidate and advances only the `:main` convenience pointers.
-- The VPS production timer resolves those pointers to digests, verifies the exact main SHA and repository labels, and updates only production.
+- Every accepted `main` change first produces the bot release commit, `CHANGELOG.md` update, and immutable `vX.Y.Z` tag; only then does the release workflow dispatch CI for that exact protected-main SHA.
+- Successful versioned `main` CI publishes a separate immutable production candidate and advances only the `:main` convenience pointers.
+- The VPS production timer resolves those pointers to digests, verifies the exact main SHA plus repository/version labels, and updates only production.
 - A failed production activation leaves the preceding production runtime serving even though `main` may be newer; repair or revert forward rather than force-moving `main` backward.
 - A later runtime rollback creates a new signed activation manifest that preserves current staging/shared infrastructure and restores only the previous compatible production block. It never reactivates an old whole-host manifest. Then a reviewed forward rollback/revert commit records the restored live code tree; `main` is never force-pushed backward.
 - Merge that forward rollback/revert record back into `dev` before another production promotion so `main` remains an ancestor of the candidate.
@@ -238,7 +239,7 @@ If normal operation cannot retain headroom, optimize first, then use a compatibl
 - Prompt 06 adds production without dropping or silently changing staging.
 - `dev` deploys an exact immutable candidate to staging.
 - Production promotion reuses the same tested digests with manual approval.
-- `main` advances only after verified production and follows the documented rollback rule.
+- `main` production CI runs only after the semantic release commit/tag and follows the documented forward-repair rollback rule.
 - GitHub-hosted runners never require inbound host SSH.
 - Cross-environment access tests fail in every forbidden direction.
 - Development captures mail in Mailpit. Staging and production submit through Stalwart only with separate senders, credentials, and internal submission networks; staging remains limited to its two allowlisted testers.

@@ -20,6 +20,7 @@ These files already define the generic core and infrastructure:
 - [`infrastructure.md`](infrastructure.md) — technology and infrastructure architecture.
 - [`environments.md`](environments.md) — development, staging, and production isolation.
 - [`deployment.md`](deployment.md) — releases, promotion, rollback, backup, and recovery.
+- [`versioning.md`](versioning.md) — Conventional Commits, pre-1.0 releases, build-time application-version propagation, and the future version-page seam.
 - [`vps-setup.md`](vps-setup.md) — Netcup host preparation and hardening.
 - [`decisions.md`](decisions.md) — locked choices, defaults, deferred items, and required user inputs.
 - [`prompts/`](prompts/README.md) — gated implementation prompts.

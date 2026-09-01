@@ -6,12 +6,16 @@ describe("production pull policy", () => {
     const script = await readFile("infra/production-pull/esmii-production-pull", "utf8");
 
     expect(script).toContain("/branches/main");
-    expect(script).toContain("actions/runs?branch=main&event=push");
+    expect(script).toContain("actions/runs?branch=main&per_page=30");
+    expect(script).toContain('allowed={"push", "workflow_dispatch"}');
     expect(script).toContain('WEB_REVISION} == "${REMOTE_REVISION}');
     expect(script).toContain("@sha256:[0-9a-f]{64}");
     expect(script).toContain("esmii/web:sha-${REMOTE_REVISION}");
     expect(script).toContain("org.opencontainers.image.revision");
     expect(script).toContain("org.opencontainers.image.source");
+    expect(script).toContain("org.opencontainers.image.version");
+    expect(script).toContain("NEXT_PUBLIC_APP_VERSION=${BUILD_APP_VERSION}");
+    expect(script).toContain("APP_VERSION=%s");
     expect(script).not.toMatch(/\b(?:ssh|scp)\b/u);
     expect(script).not.toContain(":latest");
   });

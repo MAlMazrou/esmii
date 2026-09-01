@@ -44,6 +44,23 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+.app-version {
+  position: fixed;
+  z-index: 20;
+  right: max(0.75rem, env(safe-area-inset-right));
+  bottom: max(0.6rem, env(safe-area-inset-bottom));
+  padding: 0.2rem 0.45rem;
+  border: 1px solid rgb(199 196 188 / 70%);
+  border-radius: 999px;
+  background: rgb(251 250 247 / 88%);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
 button,
 input,
 select {

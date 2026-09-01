@@ -238,8 +238,8 @@ fi
 readonly WORKFLOW_STATE=$(curl --fail --silent --show-error --location --max-time 20 \
   -H 'Accept: application/vnd.github+json' \
   -H 'X-GitHub-Api-Version: 2022-11-28' \
-  "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?branch=main&event=push&per_page=20" \
-  | python3 -c 'import json, sys; revision=sys.argv[1]; runs=[run for run in json.load(sys.stdin).get("workflow_runs", []) if run.get("head_sha") == revision and run.get("path") == ".github/workflows/ci.yaml"]; print("success" if any(run.get("status") == "completed" and run.get("conclusion") == "success" for run in runs) else "failed" if any(run.get("status") == "completed" and run.get("conclusion") not in (None, "success") for run in runs) else "pending")' "${REMOTE_REVISION}")
+  "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs?branch=main&per_page=30" \
+  | python3 -c 'import json, sys; revision=sys.argv[1]; allowed={"push", "workflow_dispatch"}; runs=[run for run in json.load(sys.stdin).get("workflow_runs", []) if run.get("head_sha") == revision and run.get("path") == ".github/workflows/ci.yaml" and run.get("event") in allowed]; print("success" if any(run.get("status") == "completed" and run.get("conclusion") == "success" for run in runs) else "failed" if any(run.get("status") == "completed" and run.get("conclusion") not in (None, "success") for run in runs) else "pending")' "${REMOTE_REVISION}")
 if [[ ${WORKFLOW_STATE} != success ]]; then
   echo "The current main CI workflow is ${WORKFLOW_STATE}; keeping the active production revision."
   exit 0
@@ -266,13 +266,17 @@ else
     tar --extract --gzip --file "${SOURCE_ARCHIVE}" --directory "${SOURCE_DIRECTORY}" \
       --strip-components=1 --no-same-owner --no-same-permissions
   fi
+  readonly BUILD_APP_VERSION=$(python3 -c 'import json, re, sys; version=json.load(open(sys.argv[1], encoding="utf-8")).get("version", ""); assert re.fullmatch(r"0\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", version); print(f"v{version}")' "${SOURCE_DIRECTORY}/package.json")
   docker build \
+    --build-arg "ESMII_APP_VERSION=${BUILD_APP_VERSION}" \
     --build-arg "ESMII_IMAGE_SOURCE=${IMAGE_SOURCE}" \
     --build-arg "ESMII_IMAGE_REVISION=${REMOTE_REVISION}" \
+    --build-arg "NEXT_PUBLIC_APP_VERSION=${BUILD_APP_VERSION}" \
     --file "${SOURCE_DIRECTORY}/apps/web/Dockerfile" \
     --tag "esmii/web:sha-${REMOTE_REVISION}" \
     "${SOURCE_DIRECTORY}"
   docker build \
+    --build-arg "ESMII_APP_VERSION=${BUILD_APP_VERSION}" \
     --build-arg "ESMII_IMAGE_SOURCE=${IMAGE_SOURCE}" \
     --build-arg "ESMII_IMAGE_REVISION=${REMOTE_REVISION}" \
     --file "${SOURCE_DIRECTORY}/apps/server/Dockerfile" \
@@ -286,8 +290,11 @@ readonly WEB_REVISION=$(image_label "${WEB_IMAGE}" org.opencontainers.image.revi
 readonly SERVER_REVISION=$(image_label "${SERVER_IMAGE}" org.opencontainers.image.revision)
 readonly WEB_SOURCE=$(image_label "${WEB_IMAGE}" org.opencontainers.image.source)
 readonly SERVER_SOURCE=$(image_label "${SERVER_IMAGE}" org.opencontainers.image.source)
+readonly WEB_VERSION=$(image_label "${WEB_IMAGE}" org.opencontainers.image.version)
+readonly SERVER_VERSION=$(image_label "${SERVER_IMAGE}" org.opencontainers.image.version)
 [[ ${WEB_REVISION} == "${REMOTE_REVISION}" && ${SERVER_REVISION} == "${REMOTE_REVISION}" ]] || { echo "Image revisions do not match the successful main revision." >&2; exit 1; }
 [[ ${WEB_SOURCE} == "${IMAGE_SOURCE}" && ${SERVER_SOURCE} == "${IMAGE_SOURCE}" ]] || { echo "Image sources do not match the configured repository." >&2; exit 1; }
+[[ ${WEB_VERSION} =~ ^v0\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ && ${SERVER_VERSION} == "${WEB_VERSION}" ]] || { echo "Image versions are invalid or do not match." >&2; exit 1; }
 
 rm -f "${PREVIOUS_OVERLAY_PATH}" "${PREVIOUS_CADDY_PATH}"
 if [[ -f ${STATE_PATH} && -f ${OVERLAY_PATH} && -f ${PRODUCTION_CADDY_PATH} ]]; then
@@ -324,6 +331,7 @@ readonly STATE_TEMP="${STATE_PATH}.tmp"
   printf 'REVISION=%s\n' "${WEB_REVISION}"
   printf 'WEB_IMAGE=%s\n' "${WEB_IMAGE}"
   printf 'SERVER_IMAGE=%s\n' "${SERVER_IMAGE}"
+  printf 'APP_VERSION=%s\n' "${WEB_VERSION}"
   printf 'MAIL_MODE=%s\n' "${MAIL_MODE}"
 } > "${STATE_TEMP}"
 chmod 0600 "${STATE_TEMP}"

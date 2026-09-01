@@ -21,7 +21,9 @@ describe("repository policy", () => {
 
     expect(joined).not.toMatch(/branches:\s*\[[^\]]*\b(?:staging|production)\b/u);
     expect(joined).not.toMatch(/branches:\s*(?:staging|production)\s*$/mu);
-    expect(joined).not.toMatch(/^\s*-\s*(?:staging|production)\s*$/mu);
+    expect(joined).not.toMatch(
+      /branches:[^\S\r\n]*\r?\n(?:[ \t]+-[^\r\n]+\r?\n)*[ \t]+-[ \t]*(?:staging|production)[ \t]*$/mu,
+    );
     expect(joined).not.toMatch(/\b(?:gh release create|wrangler deploy|scp|ssh)\b/u);
     expect(joined).not.toContain("pull_request_target");
   });
@@ -34,6 +36,7 @@ describe("repository policy", () => {
     expect(contents).toContain("ghcr.io/malmazrou/esmii-server:sha-${{ github.sha }}");
     expect(contents).toContain("ghcr.io/malmazrou/esmii-web:dev");
     expect(contents).toContain("ghcr.io/malmazrou/esmii-server:dev");
+    expect(contents).toContain("github.event_name == 'workflow_dispatch'");
     expect(contents).toContain("github.ref == 'refs/heads/main'");
     expect(contents).toContain("ghcr.io/malmazrou/esmii-web:main");
     expect(contents).toContain("ghcr.io/malmazrou/esmii-server:main");
@@ -59,14 +62,21 @@ describe("repository policy", () => {
     }
   });
 
-  it("keeps environment identity out of Docker build arguments", async () => {
+  it("keeps environment identity out of Docker build arguments while allowing the public release version", async () => {
     const dockerfiles = ["apps/web/Dockerfile", "apps/server/Dockerfile"];
     for (const dockerfile of dockerfiles) {
       const contents = await readFile(dockerfile, "utf8");
-      expect(contents).not.toMatch(/^ARG\s+(?:ENVIRONMENT|STAGING|PRODUCTION|NEXT_PUBLIC_)/mu);
+      expect(contents).not.toMatch(/^ARG\s+(?:ENVIRONMENT|STAGING|PRODUCTION)(?:\s|=|$)/mu);
+      const publicArguments = [...contents.matchAll(/^ARG\s+(NEXT_PUBLIC_[A-Z0-9_]+)/gmu)].map(
+        ([, name]) => name,
+      );
+      expect(publicArguments).toEqual(
+        dockerfile === "apps/web/Dockerfile" ? ["NEXT_PUBLIC_APP_VERSION"] : [],
+      );
       expect(contents).not.toContain("esmii.app");
       expect(contents).toContain("org.opencontainers.image.source");
       expect(contents).toContain("org.opencontainers.image.revision");
+      expect(contents).toContain("org.opencontainers.image.version");
       expect(contents).toContain("development-uncommitted");
     }
   });

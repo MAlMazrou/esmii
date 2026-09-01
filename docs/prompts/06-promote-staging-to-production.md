@@ -2,7 +2,7 @@
 
 ## Objective
 
-Create an isolated production runtime at `https://esmii.app` and make successful `main` pushes update it automatically through the same outbound-pull pattern used by staging. Production is public from first activation under the user's explicit 30 August 2026 instruction.
+Create an isolated production runtime at `https://esmii.app` and make accepted `main` changes update it automatically through the outbound-pull pattern used by staging. Under the later 1 September 2026 versioning decision, each `main` source change must first receive its bot-owned semantic release commit and immutable `vX.Y.Z` tag; only that tagged revision may run production CI. Production is public from first activation under the user's explicit 30 August 2026 instruction.
 
 This prompt's initial gate is deliberately an empty-application launch. It must not pretend that external mail, production Google OAuth, real-user onboarding, offsite-backup acceptance, or final hardened-production acceptance exists.
 
@@ -19,12 +19,12 @@ This prompt's initial gate is deliberately an empty-application launch. It must 
 
 ## Allowed actions for this gate
 
-- Add CI publication for successful `main` pushes using immutable full-SHA images and a mutable `:main` convenience pointer.
+- Add pre-build semantic release automation and CI publication for successful tagged `main` revisions using immutable full-SHA images and a mutable `:main` convenience pointer.
 - Add and test a root-owned production pull service/timer that:
   - polls GitHub outbound;
-  - accepts only the current `main` SHA after successful push-triggered CI;
+  - accepts only the current `main` SHA after successful tag-bound release-dispatched CI;
   - resolves GHCR pointers to immutable digests or builds only the exact successful public SHA when anonymous GHCR pull is unavailable;
-  - verifies OCI source and revision labels;
+  - verifies OCI source, revision, and application-version labels;
   - serializes with staging through one host lock;
   - renders base+staging+production without changing staging state;
   - runs the one-shot production migration;
@@ -33,7 +33,7 @@ This prompt's initial gate is deliberately an empty-application launch. It must 
 - Generate distinct production runtime credentials on the VPS without printing or committing them.
 - Create DNS-only Cloudflare A/AAAA apex records for `esmii.app` pointing to the verified VPS.
 - Create a GitHub `production` Environment without VPS credentials.
-- Advance the current reviewed tree from `dev` to `main` through GitHub's protected branch flow, then verify the resulting `main` CI and production activation.
+- Advance the current reviewed tree from `dev` to `main` through GitHub's protected branch flow, then verify the release commit/tag, resulting versioned `main` CI, and production activation.
 
 ## Required safety boundaries
 
