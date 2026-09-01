@@ -64,4 +64,13 @@ describe("semantic release policy", () => {
     const configuration = await readFile("commitlint.config.mjs", "utf8");
     expect(configuration).toContain('"body-max-line-length": [0]');
   });
+
+  it("formats generated release metadata before the tag is finalized", async () => {
+    const releaseScript = await readFile("scripts/release-version.mjs", "utf8");
+    expect(releaseScript).toContain(
+      '["pnpm", "exec", "prettier", "--write", "package.json", "CHANGELOG.md"]',
+    );
+    expect(releaseScript).toContain('["commit", "--amend", "--no-edit"]');
+    expect(releaseScript).toContain('["tag", "--force", expectedVersion]');
+  });
 });
