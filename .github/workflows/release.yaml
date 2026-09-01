@@ -97,9 +97,12 @@ jobs:
         run: |
           git fetch origin dev
           git switch --force-create release-sync origin/dev
+          if ! git merge-base --is-ancestor "${RELEASED_SHA}" HEAD; then
+            git merge --no-commit --no-ff "${RELEASED_SHA}"
+          fi
           git checkout "${RELEASED_SHA}" -- package.json CHANGELOG.md
-          if ! git diff --quiet -- package.json CHANGELOG.md; then
-            git add package.json CHANGELOG.md
+          git add package.json CHANGELOG.md
+          if ! git diff --cached --quiet; then
             git commit --message "chore(release): sync ${RELEASE_VERSION} to dev"
             git push origin HEAD:dev
           fi

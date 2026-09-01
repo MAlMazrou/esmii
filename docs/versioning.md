@@ -70,6 +70,6 @@ corepack pnpm version:verify
 corepack pnpm commitlint
 ```
 
-After a release, verify that the root package and `CHANGELOG.md` were committed by the bot, `vX.Y.Z` points to that protected-main commit, CI reports the same version, and the deployed footer and OCI labels agree.
+After a release, verify that the root package and `CHANGELOG.md` were committed by the bot, `vX.Y.Z` points to that protected-main commit, the released protected-main ancestry and metadata were synchronized back to `dev`, CI reports the same version, and the deployed footer and OCI labels agree.
 
 `commit-and-tag-version` is used instead of the deprecated `standard-version` package because it preserves the same commit-driven workflow while remaining maintained. Changesets is intentionally not used: this repository releases one application as a unit and does not need independent workspace-package release plans.

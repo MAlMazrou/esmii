@@ -19,7 +19,9 @@ describe("semantic release policy", () => {
     expect(release).toContain("corepack pnpm release:prepare");
     expect(release).toContain("github-actions[bot]");
     expect(release).toContain('git push origin "refs/tags/${RELEASE_VERSION}"');
+    expect(release).toContain('git merge --no-commit --no-ff "${RELEASED_SHA}"');
     expect(release).toContain('git checkout "${RELEASED_SHA}" -- package.json CHANGELOG.md');
+    expect(release).toContain("git diff --cached --quiet");
     expect(release.indexOf("corepack pnpm release:prepare")).toBeLessThan(
       release.indexOf("gh workflow run ci.yaml --ref main"),
     );
