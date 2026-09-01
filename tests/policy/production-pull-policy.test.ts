@@ -6,12 +6,16 @@ describe("production pull policy", () => {
     const script = await readFile("infra/production-pull/esmii-production-pull", "utf8");
 
     expect(script).toContain("/branches/main");
-    expect(script).toContain("actions/runs?branch=main&event=push");
+    expect(script).toContain("actions/runs?branch=main&per_page=30");
+    expect(script).toContain('allowed={"push", "workflow_dispatch"}');
     expect(script).toContain('WEB_REVISION} == "${REMOTE_REVISION}');
     expect(script).toContain("@sha256:[0-9a-f]{64}");
     expect(script).toContain("esmii/web:sha-${REMOTE_REVISION}");
     expect(script).toContain("org.opencontainers.image.revision");
     expect(script).toContain("org.opencontainers.image.source");
+    expect(script).toContain("org.opencontainers.image.version");
+    expect(script).toContain("NEXT_PUBLIC_APP_VERSION=${BUILD_APP_VERSION}");
+    expect(script).toContain("APP_VERSION=%s");
     expect(script).not.toMatch(/\b(?:ssh|scp)\b/u);
     expect(script).not.toContain(":latest");
   });
@@ -55,20 +59,30 @@ describe("production pull policy", () => {
     );
   });
 
-  it("keeps real outbound mail and Google OAuth disabled in the initial public runtime", async () => {
-    const [capture, renderer] = await Promise.all([
+  it("keeps capture and external production mail modes explicit while Google OAuth stays disabled", async () => {
+    const [capture, external, pull, renderer] = await Promise.all([
       readFile("infra/production-pull/compose.production.capture.yaml", "utf8"),
+      readFile("infra/templates/compose.production.external.yaml", "utf8"),
+      readFile("infra/production-pull/esmii-production-pull", "utf8"),
       readFile("infra/production-pull/render-production.py", "utf8"),
     ]);
 
     expect(capture).toContain("smtp://production-mailpit:1025");
     expect(capture).not.toContain("SMTP_URL_FILE");
+    expect(external).toContain("NODE_EXTRA_CA_CERTS");
+    expect(external).toContain("host_ip: 0.0.0.0");
+    expect(external).toContain('published: "25"');
+    expect(pull).toContain("ESMII_PRODUCTION_MAIL_MODE");
+    expect(pull).toContain("compose.production.external.yaml");
+    expect(pull).toContain("docker rm --force esmii-production-mailpit-1");
+    expect(pull).toContain("docker rm --force esmii-production-stalwart-1");
     expect(renderer).toContain("SMTP_URL_FILE");
+    expect(renderer).toContain('choices=("capture", "external")');
+    expect(renderer).toContain('replacements["@@PRODUCTION_MAIL_MODE@@"] == "capture"');
     expect(renderer).toContain("AUTH_GOOGLE_CLIENT_");
     expect(renderer).toContain("production_auth_google_client_");
     expect(renderer).toContain("INITIAL_PUBLIC_SHELL_MODE");
     expect(renderer).toContain("SECURITY_TOMBSTONE_JOURNAL_FILE");
-    expect(renderer).toContain("External SMTP remains disabled");
   });
 
   it("initializes the capture recovery row needed by the explicit production shell", async () => {

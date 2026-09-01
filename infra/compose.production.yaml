@@ -272,7 +272,6 @@ services:
 
   production-stalwart:
     image: stalwartlabs/stalwart:v0.16.19@sha256:0bb2e1fa01ce8dfc8d8dc1006ed11bd7359be6144fd0f8a950b0c7bf5e9a9b6c
-    command: ["--config", "/opt/stalwart/etc/config.toml"]
     restart: unless-stopped
     user: "2000:2000"
     read_only: true
@@ -287,11 +286,13 @@ services:
       - production_stalwart_webhook_secret
       - production_stalwart_dns_api_token
     volumes:
-      - ./stalwart/config.toml:/opt/stalwart/etc/config.toml:ro
       - /srv/myapp/production/stalwart/config:/etc/stalwart
       - /srv/myapp/production/stalwart/data:/var/lib/stalwart
     networks:
       production-mail-submit:
+        aliases:
+          - "@@MAIL_HOSTNAME@@"
+      staging-mail-submit:
         aliases:
           - "@@MAIL_HOSTNAME@@"
       production-mail-events:
@@ -326,6 +327,8 @@ networks:
   production-storage:
     internal: true
   production-mail-submit:
+    internal: true
+  staging-mail-submit:
     internal: true
   production-mail-events:
     internal: true

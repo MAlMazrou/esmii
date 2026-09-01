@@ -7,8 +7,8 @@ This runbook covers only the active Prompt 05 staging exception recorded in `DEC
 1. Push or merge a change to `dev`.
 2. GitHub Actions runs quality, policy, integration, migration, Compose, infrastructure, image, vulnerability, SBOM, runtime, and browser checks.
 3. A successful run publishes full-SHA GHCR images and advances only their `:dev` pointers.
-4. `esmii-staging-pull.timer` notices the new `dev` SHA within about two minutes. It requires the matching push-triggered CI run to have completed successfully.
-5. The host prefers GHCR digest references. If GHCR requires authentication, it builds the exact successful public SHA on the VPS and verifies the source/revision image labels.
+4. `esmii-staging-pull.timer` notices the new `dev` SHA within about two minutes. It requires the matching push-triggered CI run, or the semantic-release workflow's explicit staging sync dispatch, to have completed successfully.
+5. The host prefers GHCR digest references. If GHCR requires authentication, it builds the exact successful public SHA on the VPS and verifies the source/revision/version image labels.
 6. The host runs the staging migration, replaces the staging web/API/worker services, verifies `https://staging.esmii.app/api/health/live`, and records the active SHA and image references.
 
 The timer keeps the existing staging release when CI is pending or failed. A failed activation restores the preceding staging Compose overlay; on the first activation it restores the temporary Caddy demo.
@@ -28,7 +28,7 @@ docker compose --project-name esmii \
 curl --fail --silent --show-error https://staging.esmii.app/api/health/live
 ```
 
-The state file contains only the public Git SHA and image references, never credentials.
+The state file contains only the public Git SHA, application version, and image references, never credentials.
 
 ## Emergency disable
 

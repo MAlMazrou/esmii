@@ -2,6 +2,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { validateDevelopmentCompose } from "./development-compose-policy.mjs";
+import { withAppVersionEnvironment } from "./app-version.mjs";
 import {
   createLocalDockerInvocation,
   formatLocalDockerCommand,
@@ -34,7 +35,7 @@ for (const file of composeFiles) args.push("-f", file);
 
 let docker;
 try {
-  docker = createLocalDockerInvocation();
+  docker = createLocalDockerInvocation({ environment: withAppVersionEnvironment() });
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);

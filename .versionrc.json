@@ -1,0 +1,16 @@
+{
+  "bumpFiles": [
+    {
+      "filename": "package.json",
+      "type": "json"
+    }
+  ],
+  "packageFiles": [
+    {
+      "filename": "package.json",
+      "type": "json"
+    }
+  ],
+  "releaseCommitMessageFormat": "chore(release): {{currentTag}}",
+  "tagPrefix": "v"
+}

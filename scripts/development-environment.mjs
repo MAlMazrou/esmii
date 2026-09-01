@@ -7,6 +7,7 @@ import {
   formatLocalDockerCommand,
   spawnLocalDocker,
 } from "./local-docker.mjs";
+import { withAppVersionEnvironment } from "./app-version.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const localBase = join(root, ".local");
@@ -242,7 +243,7 @@ async function prepare() {
 }
 
 function composeDownWithVolumes() {
-  const docker = createLocalDockerInvocation();
+  const docker = createLocalDockerInvocation({ environment: withAppVersionEnvironment() });
   const arguments_ = [
     "compose",
     "--project-name",

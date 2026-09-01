@@ -33,8 +33,10 @@ RUN find /opt/server/node_modules -type f \( \
 FROM node:24.20.0-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e AS runtime
 ARG ESMII_IMAGE_SOURCE=local://esmii/working-tree
 ARG ESMII_IMAGE_REVISION=development-uncommitted
+ARG ESMII_APP_VERSION
 LABEL org.opencontainers.image.source="${ESMII_IMAGE_SOURCE}" \
-      org.opencontainers.image.revision="${ESMII_IMAGE_REVISION}"
+      org.opencontainers.image.revision="${ESMII_IMAGE_REVISION}" \
+      org.opencontainers.image.version="${ESMII_APP_VERSION}"
 ENV NODE_ENV=production
 ENV PORT=3000
 WORKDIR /app

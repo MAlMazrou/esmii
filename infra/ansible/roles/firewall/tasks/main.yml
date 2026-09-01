@@ -56,6 +56,15 @@
     - not esmii_test_mode | bool
     - esmii_enable_host_firewall | bool
 
+- name: Allow public SMTP ingress for the approved production mail server
+  community.general.ufw:
+    rule: allow
+    port: "25"
+    proto: tcp
+  when:
+    - not esmii_test_mode | bool
+    - esmii_enable_host_firewall | bool
+
 - name: Activate the default-deny host firewall after staging ingress rules
   community.general.ufw:
     direction: incoming

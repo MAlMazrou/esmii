@@ -19,7 +19,7 @@ const continuationLifetimeMilliseconds = 10 * 60 * 1_000;
 const localContinuationCookie = "esmii.invitation";
 const secureContinuationCookie = "__Host-esmii.invitation";
 const localAuthResultCookie = "esmii.auth-result";
-const secureAuthResultCookie = "__Host-esmii.auth-result";
+const secureAuthResultCookie = "__Secure-esmii.auth-result";
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const tokenPattern = /^[A-Za-z0-9_-]{43}$/u;
 

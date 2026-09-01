@@ -1,6 +1,6 @@
 # Requirements: generic SaaS identity core
 
-**Status:** approved documentation baseline; Prompt 04 is completed and locally verified on `dev`. Prompt 05 Gate 7 staging DNS and Google OAuth work is complete after the verified hardening apply; every later Prompt 05 gate and all Prompt 06 actions remain separately unauthorized.  
+**Status:** approved documentation baseline; Prompts 02–05 are implemented, Prompt 06's public application path is active, and its separately approved production-mail gate is active. Production Google OAuth, offsite-backup/restore acceptance, external monitoring acceptance, and final hardened-production acceptance remain separate unresolved gates.
 **Scope:** passwordless identity, organizations, memberships, invitations, authorization, and the supporting application services.  
 **Not defined here:** the application's eventual domain-specific product.
 
@@ -40,7 +40,7 @@ A user may belong to multiple organizations. Every role is scoped to a single me
 
 ### AUTH-001 — Registration policy
 
-Production permits open passwordless self-registration through the approved magic-link and Google login methods. A newly verified user may create an organization or remain without one until invited. Staging is the exception: it must enforce its configured tester-email allowlist before it creates an account or session. Google availability is still environment-configured, and hiding a button is never the enforcement layer.
+Production permits open passwordless self-registration through the approved magic-link and Google login methods. A newly verified user may create an organization or remain without one until invited. Staging uses an explicit server-side access mode and currently permits only the two user-selected tester addresses through both email and Google sign-in. The tester list remains root-only outside Git. Google availability is still environment-configured, and hiding a button is never the enforcement layer.
 
 ### AUTH-002 — Initial login methods
 
@@ -274,7 +274,7 @@ The generic core requires accessible text and HTML templates for:
 - organization invitation;
 - ownership/membership security notification where required by the flow.
 
-Development, tests, and staging use Mailpit/captured delivery only and never send internet email. Production submission through Stalwart occurs only in Prompt 06 after its Netcup policy, firewall, PTR, DNS, reputation, and mail-security approvals and prerequisites.
+Development and automated tests use Mailpit/captured delivery only. After the approved self-hosted-mail gate, production submits through Stalwart. Staging may submit account/auth messages for its allowlisted testers through the same Stalwart service only with its own sender and credential; it may not mount the production worker credential or send marketing/bulk mail.
 
 An SMTP server necessarily receives the rendered message and may persist it in its delivery queue until success, expiry, or bounce handling; the recipient mailbox also retains its copy. Therefore the application hash-only rule applies to PostgreSQL application tables, outbox rows, pg-boss payloads, logs, audit events, traces, and test fixtures—not to the minimum transient mail-queue/message state required for delivery. Stalwart data and backups require strict host permissions and encryption, bounded queue/message retention, and no message-body journaling. Magic-login links remain single-use for ten minutes; invitation acceptance remains single-use through the invitation's seven-day expiry and additionally requires an authenticated verified account with the exact normalized email.
 

@@ -8,6 +8,8 @@ Staging and production share that machine and the one public Caddy instance, but
 
 Cloudflare remains the registrar and authoritative DNS provider. Netcup supplies compute, SCP/CCP recovery, network/firewall controls, PTR, images, snapshots, and the default mail restriction.
 
+As of 31 August 2026, the separately approved mail gate has removed that default mail restriction and activated Stalwart. Staging submits account/auth mail only for its two allowlisted testers through a separate staging sender and SMTP credential; it does not receive the production worker credential. Its private Mailpit remains non-public but is no longer the staging worker's delivery route.
+
 ## 2. Environment matrix
 
 | Concern | Development | Staging | Production |
@@ -18,15 +20,15 @@ Cloudflare remains the registrar and authoritative DNS provider. Netcup supplies
 | Public edge | local port | shared Caddy, staging hostname | shared Caddy, production hostname |
 | PostgreSQL | `development-postgres` | `staging-postgres` | `production-postgres` |
 | Valkey | `development-valkey` | `staging-valkey` | `production-valkey` |
-| Email | Mailpit | separate Mailpit | isolated non-delivering capture initially; Stalwart only after mail approval |
+| Email | Mailpit | separate Stalwart sender/credential for allowlisted testers; private Mailpit retained | Stalwart after mail approval |
 | Security tombstones | local capture/fault adapter | isolated capture/fault adapter | isolated capture initially; encrypted append-only off-Netcup journal after its gate |
 | Auth secret/cookie | development-only | staging-only | production-only |
 | OAuth clients | optional local Google | staging-only Google client | disabled initially; separate production-only Google client after its gate |
 | Media roots | disposable local | `/srv/myapp/staging/media/{public,private}` | `/srv/myapp/production/media/{public,private}` |
 | Data retention | disposable | disposable test data | durable customer data |
 | Backup | none | excluded from production Restic dataset | Restic repository outside Netcup |
-| Deployment source | working tree | successful protected `dev` candidate | successful protected `main` candidate |
-| User access | developer | tester allowlist | public empty shell; real-user onboarding disabled until production auth/mail gates |
+| Deployment source | working tree | successful protected `dev` candidate | successful tagged and versioned protected `main` candidate |
+| User access | developer | exactly two user-selected tester addresses; `noindex` retained | public application; provider availability remains environment-configured |
 
 ## 3. Rules that apply everywhere
 
@@ -36,7 +38,7 @@ Cloudflare remains the registrar and authoritative DNS provider. Netcup supplies
 - `/api/health/live` and `/api/health/ready` are public and minimal. `/api/health/dependencies` requires operator authorization and must not disclose credentials or sensitive topology.
 - Only prepared, public, content-hashed media variants may be served by Caddy. Private media always passes through Fastify authorization.
 - Environment-prefixed containers, volumes, networks, credentials, cookies, OAuth clients, and filesystem roots are mandatory.
-- Development/staging email cannot route through production Stalwart. The initial public production shell may use its own isolated non-delivering capture sink; accepted production mail uses Stalwart only after the mail gate.
+- Development cannot route through Stalwart. Staging may use only its separately scoped sender and credential for allowlisted tester account mail; it cannot read or mount the production worker SMTP credential.
 - Development/staging cannot receive the production security-tombstone journal credential or route; only production API receives its create-only identity, while recovery/read/delete authority remains off-host.
 - Runtime roles cannot perform database migrations. API and worker use separate database roles and separate Valkey ACL users.
 - Workers have no public default route. APIs receive only the egress explicitly required by product behavior.
@@ -73,7 +75,9 @@ Prompt 05 activates only:
 - `staging-worker` with concurrency 1;
 - `staging-api`;
 - `staging-web`;
-- private `staging-mailpit`.
+- private `staging-mailpit`, retained as an operator-only capture service but not used by the staging worker;
+- an isolated staging SMTP credential mounted only in `staging-worker` for account/auth delivery through Stalwart.
+- a staging-owned copy of Stalwart's public TLS trust certificate mounted read-only in `staging-worker`; no mail private key is shared.
 
 The first root-sealed host manifest uses the complete schema in `docs/deployment.md`. Its environment/overlay state includes this abbreviated shape:
 
@@ -98,21 +102,21 @@ Production secrets, volumes, databases, cache, media roots, OAuth clients, Stalw
 
 ### Staging access
 
-The staging application may be reachable by HTTPS so the Google callback works. It is still restricted by:
+The staging application is reachable by HTTPS for the Google callback and permits only the two user-selected tester addresses. It remains bounded by:
 
-- a server-side tester-email allowlist applied before account/session creation;
+- an explicit server-side `allowlist` mode with a non-empty root-only tester set applied to both email and Google sign-in;
 - host-only staging cookies with a unique name and signing secret;
 - `X-Robots-Tag: noindex, nofollow, noarchive` and an appropriate `robots.txt`;
 - no production data;
 - an optional Cloudflare Access layer only if it is proven not to break OAuth callbacks or automated tests.
 
-Mailpit, database/cache ports, deployment controls, dependency health, and administration remain private through an approved admin VPN/SSH tunnel or source allowlist.
+Mailpit, database/cache ports, deployment controls, dependency health, Stalwart management, and administration remain private through their existing network/VPN boundaries.
 
-GitHub-hosted runners do not SSH to the host. Post-deployment smoke tests run locally on the VPS through the root-owned reconciler and report GitHub Deployment status outbound over HTTPS. Browser E2E from CI may target the HTTPS staging hostname only with a dedicated allowlisted test account; it receives no administrative network access.
+GitHub-hosted runners do not SSH to the host. Post-deployment smoke tests run locally on the VPS through the root-owned reconciler and report GitHub Deployment status outbound over HTTPS. Browser E2E from CI may target the public HTTPS staging hostname with synthetic data; it receives no administrative network access.
 
 ## 6. Production activation
 
-For the current initial application gate, successful `main` CI publishes immutable full-SHA images and advances `:main`; the separate production timer resolves the pointers to digests, verifies labels, and activates only production. It starts publicly at `esmii.app` with an isolated non-delivering capture sink and Google OAuth disabled. This is the user's 30 August 2026 override of the older restricted/manual application-promotion sequence below; the sealed sequence remains the target for final mail, backup, recovery, and hardened-production acceptance.
+For the current initial application gate, an accepted `main` change is first converted into a bot-owned semantic release commit and immutable `vX.Y.Z` tag. Only that tagged revision is dispatched to CI; successful CI publishes immutable full-SHA images and advances `:main`. The separate production timer resolves the pointers to digests, verifies source/revision/version labels, and activates only production. It starts publicly at `esmii.app` with Google OAuth disabled. This is the user's 30 August 2026 branch-automation decision plus the 1 September 2026 pre-build versioning requirement; the sealed sequence remains the target for final backup, recovery, and hardened-production acceptance.
 
 Prompt 06 promotes the exact currently active staging-tested application-payload and image digests. It does not rebuild them. It creates a new signed production activation manifest because the host transition adds `infra/compose.production.yaml` while keeping staging active. The manifest references one unchanged shared-infrastructure payload plus a separate application payload in each environment block; its digest/signature live in the external deployment/sealed-release envelope to avoid a self-hash. Its abbreviated environment/overlay state is:
 
@@ -146,14 +150,17 @@ The full staging block and shared-infrastructure digest must be preserved. After
 
 Production uses separate PostgreSQL, Valkey, media, secrets, cookies, OAuth clients, networks, and Stalwart credentials. It starts with `production_edge_mode: restricted`, a DNS-only Cloudflare application record, and the reviewed `<PRELAUNCH_TEST_CIDRS>` Caddy allowlist. A tester completes OAuth through a fixed/VPN egress address in that list; an external disallowed source must receive 403. After all OAuth, mail, backup/restore, monitoring, security, smoke, resource, and rollback gates pass, a new signed activation manifest may select the already reviewed public production fragment only under the separate public-launch approval. It is based on the currently active predecessor, preserving whatever staging block is current and the verified restricted production non-edge block; a staging advance never authorizes rolling staging backward for launch.
 
+The actual public-launch gate was later approved directly, and the production-mail gate is now active in `external` mode. Only IPv4 TCP 25 is publicly published for mail transfer; operational IMAPS remains loopback-only, and Stalwart management remains bound only to the private production mail-admin network. The production worker submits as `noreply@esmii.app` over certificate-verified STARTTLS. This operational status does not waive the still-unresolved backup/restore, monitoring, production Google OAuth, mail-feedback, or final acceptance gates.
+
 ## 7. Branch and promotion model
 
 - Feature branches merge by pull request into protected `dev`.
 - A successful `dev` candidate is built once, tested, published to GHCR by digest, and deployed to staging.
 - After Prompt 05 explicitly activates the narrow ongoing policy, later qualifying protected-`dev` candidates may deploy automatically through the unchanged signed/reconciled path; workflow, credential, provider, secret, or policy changes require new approval.
 - The staging release record stores source SHA, immutable shared-infrastructure and staging-application payload digests, staging activation-manifest digest, image digests, test results, and deployment status.
-- Successful `main` push CI publishes a separate immutable production candidate and advances only the `:main` convenience pointers.
-- The VPS production timer resolves those pointers to digests, verifies the exact main SHA and repository labels, and updates only production.
+- Every accepted `main` change first produces the bot release commit, `CHANGELOG.md` update, and immutable `vX.Y.Z` tag; only then does the release workflow dispatch CI for that exact protected-main SHA.
+- Successful versioned `main` CI publishes a separate immutable production candidate and advances only the `:main` convenience pointers.
+- The VPS production timer resolves those pointers to digests, verifies the exact main SHA plus repository/version labels, and updates only production.
 - A failed production activation leaves the preceding production runtime serving even though `main` may be newer; repair or revert forward rather than force-moving `main` backward.
 - A later runtime rollback creates a new signed activation manifest that preserves current staging/shared infrastructure and restores only the previous compatible production block. It never reactivates an old whole-host manifest. Then a reviewed forward rollback/revert commit records the restored live code tree; `main` is never force-pushed backward.
 - Merge that forward rollback/revert record back into `dev` before another production promotion so `main` remains an ancestor of the candidate.
@@ -182,7 +189,7 @@ Before production activation, prove all of the following:
 - neither environment can mount the other's media roots;
 - cookies differ in hostname, name, and signature and are rejected cross-environment;
 - OAuth applications and callback origins are separate;
-- staging has no production SMTP, Stalwart, Restic, security-tombstone-journal, or production signing credential;
+- staging has no production SMTP credential, `production-mail-submit` access, Restic credential, security-tombstone journal, or production signing credential; its separate SMTP identity reaches Stalwart only through `staging-mail-submit`;
 - staging Mailpit is not public;
 - production backups exclude staging;
 - production activation does not recreate or alter staging containers/state/digests; shared Caddy may reload, but its staging fragment/digest and behavior remain unchanged;
@@ -232,10 +239,10 @@ If normal operation cannot retain headroom, optimize first, then use a compatibl
 - Prompt 06 adds production without dropping or silently changing staging.
 - `dev` deploys an exact immutable candidate to staging.
 - Production promotion reuses the same tested digests with manual approval.
-- `main` advances only after verified production and follows the documented rollback rule.
+- `main` production CI runs only after the semantic release commit/tag and follows the documented forward-repair rollback rule.
 - GitHub-hosted runners never require inbound host SSH.
 - Cross-environment access tests fail in every forbidden direction.
-- Staging captures mail in private Mailpit; only production can use Stalwart.
+- Development captures mail in Mailpit. Staging and production submit through Stalwart only with separate senders, credentials, and internal submission networks; staging remains limited to its two allowlisted testers.
 - Netcup's Mail block remains in place until the Prompt 06 mail gate.
 - Production Restic data leaves Netcup and passes an isolated restore test.
 - The combined host remains within memory, disk, CPU, and rollback headroom thresholds.

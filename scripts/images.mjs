@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { readPublicAppVersion } from "./app-version.mjs";
 import { createLocalDockerInvocation, spawnLocalDocker } from "./local-docker.mjs";
 
 const images = [
@@ -15,6 +16,14 @@ const developmentProvenance = {
   revision: "development-uncommitted",
   source: "local://esmii/working-tree",
 };
+
+const appVersion = readPublicAppVersion();
+if (process.env.ESMII_APP_VERSION && process.env.ESMII_APP_VERSION !== appVersion) {
+  console.error(
+    `ESMII_APP_VERSION=${process.env.ESMII_APP_VERSION} does not match package.json ${appVersion}.`,
+  );
+  process.exit(1);
+}
 
 function resolveImageProvenance(environment = process.env) {
   const configuredSource = environment.ESMII_IMAGE_SOURCE;
@@ -187,7 +196,12 @@ function runRuntimeFixture({ environmentName, image, kind, port }) {
       `OPERATIONS_HEALTH_TOKEN=INERT_${environmentName.toUpperCase()}_RUNTIME_FIXTURE_TOKEN_0001`,
     );
     if (environmentName === "staging") {
-      arguments_.push("--env", "AUTH_STAGING_TESTER_EMAILS=synthetic.tester@example.invalid");
+      arguments_.push(
+        "--env",
+        "AUTH_STAGING_ACCESS_MODE=allowlist",
+        "--env",
+        "AUTH_STAGING_TESTER_EMAILS=synthetic.tester@example.invalid",
+      );
     }
     if (environmentName === "production") {
       arguments_.push("--env", "INITIAL_PUBLIC_SHELL_MODE=true");
@@ -232,7 +246,7 @@ function runRuntimeFixture({ environmentName, image, kind, port }) {
         : [
             "node",
             "-e",
-            `fetch('http://127.0.0.1:${port}/').then(async (response) => { const body = await response.text(); if (!response.ok || !body.includes('Opening Esmii')) process.exit(1); }).catch(() => process.exit(1));`,
+            `fetch('http://127.0.0.1:${port}/').then(async (response) => { const body = await response.text(); if (!response.ok || !body.includes('Opening Esmii') || !body.includes('${appVersion}')) process.exit(1); }).catch(() => process.exit(1));`,
           ];
     waitForFixture(name, probe);
     fixtureImageId = expectedImageId;
@@ -299,8 +313,10 @@ function runRuntimeFixtures() {
 
 if (process.argv[2] === "build") {
   for (const image of images) {
-    run([
+    const buildArguments = [
       "build",
+      "--build-arg",
+      `ESMII_APP_VERSION=${appVersion}`,
       "--build-arg",
       `ESMII_IMAGE_SOURCE=${provenance.source}`,
       "--build-arg",
@@ -309,8 +325,12 @@ if (process.argv[2] === "build") {
       image.dockerfile,
       "--tag",
       image.tag,
-      ".",
-    ]);
+    ];
+    if (image.kind === "web") {
+      buildArguments.push("--build-arg", `NEXT_PUBLIC_APP_VERSION=${appVersion}`);
+    }
+    buildArguments.push(".");
+    run(buildArguments);
   }
 } else if (process.argv[2] === "scan") {
   const forbidden = [
@@ -340,9 +360,12 @@ if (process.argv[2] === "build") {
     }
     if (
       labels?.["org.opencontainers.image.source"] !== provenance.source ||
-      labels?.["org.opencontainers.image.revision"] !== provenance.revision
+      labels?.["org.opencontainers.image.revision"] !== provenance.revision ||
+      labels?.["org.opencontainers.image.version"] !== appVersion
     ) {
-      console.error(`${image.tag} does not carry the expected OCI source and revision labels.`);
+      console.error(
+        `${image.tag} does not carry the expected OCI source, revision, and version labels.`,
+      );
       process.exit(1);
     }
     if (containsForbidden(inspected.stdout, forbidden)) {

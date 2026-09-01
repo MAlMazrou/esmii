@@ -4,13 +4,16 @@
 
 ### Current branch-triggered application policy
 
-On 30 August 2026 the user replaced the planned manual application-promotion trigger with direct environment branch automation:
+On 30 August 2026 the user replaced the planned manual application-promotion trigger with direct environment branch automation. On 1 September 2026 the user added a required pre-build semantic-release step for `main`:
 
 - successful `dev` CI publishes immutable full-SHA images, advances only `:dev`, and the VPS staging timer activates them;
-- successful `main` CI publishes immutable full-SHA images, advances only `:main`, and the VPS production timer activates them;
-- both timers resolve mutable convenience pointers to immutable digests, verify OCI source/revision labels, serialize through one host lock, run migrations and health checks, and restore the preceding environment overlay on failure;
-- staging and production keep separate databases, Valkey instances, media roots, credentials, networks, cookies, and captured-mail state;
-- the initial public production application gate does not activate external SMTP, production Google OAuth, real-user onboarding, offsite-backup acceptance, or final hardened-production acceptance.
+- every accepted `main` change first creates a bot-owned `package.json`/`CHANGELOG.md` release commit and immutable `vX.Y.Z` tag; only that tagged protected-main revision is dispatched to CI;
+- successful versioned `main` CI publishes immutable full-SHA images, advances only `:main`, and the VPS production timer activates them;
+- both timers resolve mutable convenience pointers to immutable digests, verify OCI source/revision/version labels, serialize through one host lock, run migrations and health checks, and restore the preceding environment overlay on failure;
+- staging and production keep separate databases, Valkey instances, media roots, credentials, networks, cookies, and mail state;
+- the separately approved 31 August 2026 mail gate selected the production `external` Stalwart overlay; staging uses only a separate sender/credential on its internal submission network for the two allowlisted testers while its private Mailpit remains operator-only;
+- staging trusts the internal Stalwart endpoint through a staging-owned read-only copy of its public certificate; certificate rotation must refresh that copy before restarting the staging worker, and no Stalwart private key crosses the environment boundary;
+- production Google OAuth, offsite-backup/restore acceptance, external monitoring acceptance, and final hardened-production acceptance remain inactive.
 
 This current policy controls application delivery where older sections below describe manual exact-staging-digest promotion. The sealed manifest design remains the target for later mail, backup, recovery, and fully accepted production transitions.
 
@@ -19,32 +22,25 @@ The target is one Netcup RS 1000 G12 running Ubuntu 26.04 LTS with 4 dedicated x
 The release flow is:
 
 ```text
-feature branch -> PR -> protected dev
-                         |
-                         v
-               CI builds/tests once
-                         |
-                         v
-        immutable GHCR images + attested application payload
-                         |
-                         v
-             automatic staging Deployment
-                         |
-                         v
-          host pull + staging verification/status
-                         |
-                 manual production approval
-                         |
-                         v
-       same staging-tested application payload/images in production
-       unchanged shared-infrastructure payload
-          new signed production activation manifest
-                         |
-                         v
-            production verification/status
-                         |
-                         v
-             fast-forward protected main
+feature branch -> PR -> protected dev -> successful CI -> staging timer
+                              |
+                              v
+                     reviewed PR to main
+                              |
+                              v
+              protected main source-change commit
+                              |
+                              v
+         release bot updates package/changelog and tags vX.Y.Z
+                              |
+                              v
+                 tag-bound CI builds/tests once
+                              |
+                              v
+            immutable GHCR images + :main pointers
+                              |
+                              v
+                 production timer + verification
 ```
 
 There are no long-lived `staging` or `production` branches. `dev` is the integration/staging source. `main` records the code tree verified live in production. The root-sealed release manifest, not a branch name or mutable tag, is authoritative for exact runtime digests.
@@ -53,30 +49,27 @@ There are no long-lived `staging` or `production` branches. `dev` is the integra
 
 The user authorized a smaller staging-only delivery path on 30 August 2026 so ordinary `dev` changes can reach the VPS without GitHub receiving SSH access. The active path is deliberately limited:
 
-1. `ci.yaml` runs the complete repository checks for a `dev` push and publishes full-SHA web/server images. Only after every required job succeeds does it advance the two `:dev` staging pointers.
-2. The root-owned `esmii-staging-pull.timer` polls outbound every two minutes. It accepts only the current `dev` head with a successful push-triggered `ci.yaml` run and requires matching source/revision OCI labels.
+1. `ci.yaml` runs the complete repository checks for a `dev` push and publishes full-SHA web/server images. Only after every required job succeeds does it advance the two `:dev` staging pointers. A release-metadata sync from `main` uses an explicit staging dispatch bound to the synchronized version.
+2. The root-owned `esmii-staging-pull.timer` polls outbound every two minutes. It accepts only the current `dev` head with a successful push-triggered or release-sync-dispatched `ci.yaml` run and requires matching source/revision/version OCI labels.
 3. The host prefers immutable GHCR digest references. While anonymous GHCR pull is unavailable, it downloads and builds only that exact successful public `dev` SHA on the VPS, tags the result with the full SHA, and verifies the same OCI source/revision labels before activation.
 4. The host renders only the staging overlay, runs the one-shot migration, starts the isolated staging services, checks public HTTPS health, and restores the preceding Compose overlay or the temporary demo if activation fails.
 5. The timer has no repository-write permission or public listener. GitHub-hosted runners never receive VPS SSH, Docker, WireGuard, database, OAuth, or application-secret access.
 
-This path began as a staging-only exception. Under the separately recorded `DEC-INPUT-024` gate, the equivalent root-owned production timer now deploys only successful `main` candidates to the isolated public application runtime. It does not open internet mail, create production OAuth credentials, enable real-user onboarding, accept offsite backups/monitoring, or authorize a later workflow, credential, host, or policy change.
+This path began as a staging-only exception. Under the separately recorded `DEC-INPUT-024` gate, the equivalent root-owned production timer now deploys only successful, tag-bound `main` candidates to the isolated public application runtime. The production build is dispatched only after the semantic release commit and tag exist. It does not create production OAuth credentials, enable real-user onboarding, accept offsite backups/monitoring, or authorize a later credential, host, or environment-boundary change.
 
 ## 2. Repository automation
 
-Expected workflows:
+Active workflows:
 
 ```text
 .github/workflows/
 ├── ci.yaml
-├── build-release.yaml
-├── deploy-staging.yaml
-├── promote-production.yaml
-└── rollback-production.yaml
+└── release.yaml
 ```
 
 Security scanning is part of `ci.yaml`. Real backup/restore execution belongs to the root-owned host systemd units; GitHub Actions never receives VPS/Restic credentials and never connects to the host for a restore. CI may test backup scripts against disposable local fixtures only.
 
-During the active Prompt 05 exception, `ci.yaml` also publishes the verified dev candidate and the VPS timer performs the staging-only pull described above. The additional workflow files in the expected final layout remain future production/promotion work, not evidence that they already exist.
+`ci.yaml` validates pull requests, publishes successful `dev` candidates, and accepts only an explicit version/channel dispatch for released `main` or synchronized `dev`. `release.yaml` is the only automatic workflow on a `main` push: it performs the version/changelog commit and tag first, then dispatches `ci.yaml`. Future sealed promotion/rollback workflows remain deferred; their names in older architecture examples are not evidence that they exist.
 
 ### 2.1 Pull requests and `dev`
 
@@ -98,7 +91,7 @@ Protect `dev` with required reviews/checks and disallow direct or force pushes. 
 
 ### 2.2 Build once
 
-After a protected `dev` merge, CI:
+For a protected `dev` candidate or a tagged protected-`main` release, CI:
 
 1. repeats required checks;
 2. builds the web and server images for the verified VPS platform;
@@ -110,7 +103,7 @@ After a protected `dev` merge, CI:
 
 No later environment rebuild is allowed. A source, lockfile, image, or application-payload change creates a new candidate and must pass staging again. Prompt 04 locally and deterministically produces the reviewed shared-infrastructure payload containing Compose/Caddy/non-secret host configuration and records its expected checksum without publishing it. Under Prompt 05's separate registry approval, CI reproduces the exact bytes from the reviewed commit, requires the approved checksum, independently attests them, and publishes an immutable GHCR OCI artifact. The VPS then verifies the downloaded registry digest/checksum. Each host transition gets a signed activation manifest that references that shared-infrastructure payload plus one application payload for each active environment. This lets staging advance while production safely remains on its older tested application payload. Changing shared infrastructure is never a routine automatic staging update.
 
-Build-once also means environment-neutral client/server images. Do not pass environment-specific build arguments or `NEXT_PUBLIC_*` values. Client code uses same-origin relative routes; any required browser-safe environment metadata comes from a typed allowlisted runtime SSR/API payload. CI searches the built standalone output/client chunks for staging/production domains, OAuth IDs, cookie names, mail hosts, and sentinel secrets, then runs the same image digests under separate staging and production runtime fixtures.
+Build-once also means environment-neutral client/server images. Do not pass environment-specific build arguments or `NEXT_PUBLIC_*` values. The sole approved exception is `NEXT_PUBLIC_APP_VERSION`, which is public, environment-neutral, derived from the root package, and passed before `next build`; both application images carry the same `org.opencontainers.image.version` label. Client code uses same-origin relative routes; any other required browser-safe environment metadata comes from a typed allowlisted runtime SSR/API payload. CI searches the built standalone output/client chunks for staging/production domains, OAuth IDs, cookie names, mail hosts, and sentinel secrets, then runs the same image digests under separate staging and production runtime fixtures.
 
 ### 2.3 GitHub Environments
 
@@ -499,6 +492,8 @@ Netcup's default Mail block prevents inbound and outbound SMTP and remains enabl
 - private Stalwart administration;
 - signed/idempotent bounce and delivery feedback;
 - low launch quotas, suppression, abuse handling, and monitoring.
+
+**Live mail-gate status (31 August 2026):** production runs the pinned Stalwart image in `external` mode with private administration, authenticated STARTTLS submission, public IPv4 TCP 25, and loopback-only operational IMAPS. `mail.esmii.app` has forward and reverse DNS plus MX, SPF, automatically managed RSA/Ed25519 DKIM records, and monitoring-mode DMARC. Netcup's provider firewall remains active, but its separately approved default outbound mail-block policy was removed; its ping policy was preserved. A production magic-link canary was accepted by Google's MX with SMTP `250` and appeared in the recipient Gmail account. The first message was classified as Spam because the sender was new; after it was moved to Inbox, the fresh superseding link appeared in that Inbox conversation. This proves the application path and recipient receipt, not mature sender reputation or final production acceptance. Resend-specific DNS records were then removed. Staging uses a separate `staging@esmii.app` identity and credential only for its two allowlisted testers; its private Mailpit remains available for operator capture but is not the worker delivery route.
 
 Stalwart is limited to application magic links, invitations, system notifications, and named operational mailboxes such as postmaster, abuse, and support. No marketing, newsletter, campaign, bulk-mail, or general end-user mailbox service is permitted by this blueprint.
 

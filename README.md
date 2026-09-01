@@ -1,8 +1,8 @@
 # Esmii
 
-This repository package defines how an implementation agent should start a small, self-hosted SaaS application on one Netcup server. The selected launch host is an x86 Netcup RS 1000 G12 with 4 dedicated cores, 8 GB ECC RAM, 256 GB NVMe, and IPv4 plus IPv6 connectivity. Staging is deployed from successful `dev` CI and production is deployed independently from successful `main` CI, with immutable image identity and isolated runtime state in both environments. The package contains the agreed requirements, architectural constraints, decisions, execution rules, and numbered implementation sequence.
+This repository package defines how an implementation agent should start a small, self-hosted SaaS application on one Netcup server. The selected launch host is an x86 Netcup RS 1000 G12 with 4 dedicated cores, 8 GB ECC RAM, 256 GB NVMe, and IPv4 plus IPv6 connectivity. Staging is deployed from successful `dev` CI; production is deployed independently from tagged, versioned `main` CI, with immutable image identity and isolated runtime state in both environments. The package contains the agreed requirements, architectural constraints, decisions, execution rules, and numbered implementation sequence.
 
-> **Current status: Prompt 05 is complete, and Prompt 06's initial public application gate is complete.** Successful `dev` CI runs automatically update the isolated staging application at `https://staging.esmii.app`; successful `main` CI runs automatically update the isolated public production application at `https://esmii.app`. Real outbound mail, production Google OAuth, real-user onboarding, offsite-backup acceptance, and the final hardened-production acceptance remain disabled until their separate requirements are completed.
+> **Current status: Prompt 05, Prompt 06's initial public application gate, and the separately approved self-hosted mail gate are complete.** Successful `dev` CI runs automatically update the isolated staging application at `https://staging.esmii.app`; accepted `main` changes are semantically versioned and tagged before successful CI updates the isolated public production application at `https://esmii.app`. Staging permits exactly the two user-selected tester addresses for both email and Google sign-in, retains `noindex`, and delivers account mail through its own Stalwart sender/credential; the exact tester list stays root-only outside Git. Production Google OAuth, offsite-backup/restore acceptance, external monitoring acceptance, and the final hardened-production acceptance remain disabled until their separate requirements are completed.
 
 Tokens written as `<SEMANTIC_NAME>` are unresolved placeholders, not sample values, and must never be copied into production unchanged. Only rows marked `REQUIRED INPUT` in `docs/decisions.md` must be supplied or approved by the user. SHA/digest/release/evidence/DKIM and similar placeholders are generated, verified, and recorded by the prompt that names them; the agent must not ask the user to invent those values.
 
@@ -16,6 +16,7 @@ Tokens written as `<SEMANTIC_NAME>` are unresolved placeholders, not sample valu
 - [`docs/environments.md`](./docs/environments.md) — development, staging, and production isolation and promotion policy.
 - [`docs/vps-setup.md`](./docs/vps-setup.md) — proposed host-change procedure and approval gates.
 - [`docs/deployment.md`](./docs/deployment.md) — immutable release, promotion, rollback, and recovery policy.
+- [`docs/versioning.md`](./docs/versioning.md) — Conventional Commits, automatic semantic releases, build-time version propagation, and the future version-page seam.
 - [`docs/product/`](./docs/product/) — draft product-requirements, flows, domain, permission, roadmap, and terminology templates.
 - [`docs/design/`](./docs/design/) — draft design-system, screen, responsive, accessibility, and content templates.
 - [`docs/engineering/`](./docs/engineering/) — draft product data, API, realtime, storage, and testing specifications.
@@ -65,10 +66,17 @@ For product definition, [`docs/prompts/product-discovery.md`](./docs/prompts/pro
 - Normal development and feature pull requests land on the protected `dev` branch.
 - A successful `dev` candidate is built once in GitHub Actions, pushed to GHCR by immutable digest, and deployed to the isolated staging environment.
 - Under the active Prompt 05 staging exception, the VPS polls the current `dev` SHA and its successful CI run over outbound HTTPS, prefers GHCR digests, and can build that exact successful SHA locally while anonymous GHCR pull is unavailable. GitHub-hosted runners do not SSH to the host.
-- A successful `main` CI run publishes immutable full-SHA images and advances only the `:main` convenience pointers.
+- Every accepted `main` change first creates a bot-owned semantic release commit and immutable `vX.Y.Z` tag; only that versioned revision is dispatched to CI.
+- A successful versioned `main` CI run publishes immutable full-SHA images and advances only the `:main` convenience pointers.
 - The VPS production timer polls outbound, resolves the main pointers to immutable digests, verifies source/revision labels, migrates and health-checks the isolated production runtime, and restores the preceding production overlay if activation fails.
 - `main` is never force-moved backward. A failed activation leaves the prior runtime serving while a reviewed fix or forward revert is prepared.
 - There are no long-lived `staging` or `production` branches. GitHub Environments, release manifests, credentials, data, domains, and Compose overlays provide environment separation.
+
+### Semantic versioning
+
+The root `package.json` is the application-version source of truth, initialized at `0.1.0`. New commits and pull-request titles use Conventional Commits. Under the current pre-1.0 policy, ordinary changes—including `fix:` and `feat:`—bump the patch, while `feat!:` or a `BREAKING CHANGE:` footer bumps the minor. The workflow will not cross into `1.0.0` until the user explicitly approves the first stable release.
+
+On each accepted `main` change, the release workflow updates `package.json` and `CHANGELOG.md`, commits them with the GitHub Actions bot, creates the matching `vX.Y.Z` tag, and only then dispatches the build/deployment workflow. The version is passed to the web image before `next build` as `NEXT_PUBLIC_APP_VERSION`, embedded into both OCI image labels, and rendered in the shared application footer. See [`docs/versioning.md`](./docs/versioning.md) for the exact flow, troubleshooting, and the documented starting points for a future version page.
 
 ### Copy-paste kickoff instruction
 
@@ -254,7 +262,7 @@ The authoritative input register is in [`docs/decisions.md`](./docs/decisions.md
 - fixed production prelaunch tester/VPN egress CIDRs so Caddy can restrict the DNS-only production hostname while browser OAuth callbacks are tested;
 - the Netcup RS 1000 G12 server ID/location, static IPv4, IPv6 subnet, SSH identity, SCP/CCP recovery confirmation, and administrative source IP or VPN;
 - confirmation that the order uses `IPv4 + IPv6 Connectivity`, that Ubuntu 26.04 is available as an SCP image or will be installed from the official ISO, and that the server identity/onboarding checks are complete;
-- confirmation that Netcup's removable `netcup Mail block` remains enabled until production mail approval, that PTR control works in SCP, that low-volume transactional mail is permitted under Netcup's bulk-mail restriction, and that the assigned IP passes reputation checks;
+- confirmation that Netcup's removable `netcup Mail block` remains enabled until production mail approval, followed by a recorded exact removal; confirmation that PTR control works in SCP, that low-volume transactional mail is permitted under Netcup's bulk-mail restriction, and that the assigned IP passes reputation checks;
 - Cloudflare DNS authority and a scoped DNS-01 credential reference for the mail certificate; the domain does not need to move to Netcup;
 - separate Google applications/credentials for production and staging through an approved secret channel;
 - the offsite Restic repository/recovery credential references, the immutable off-Netcup deployment-checkpoint prefix needed before staging activation, and the separate encrypted security-tombstone journal needed before production access-lowering operations;
@@ -262,7 +270,7 @@ The authoritative input register is in [`docs/decisions.md`](./docs/decisions.md
 - the least-privilege GitHub App deployment-status credential (status/UI only), separate read-only GHCR credential, provenance identity, and protected production-promotion identity references;
 - the Netcup abuse-notice response owner and decision on obtaining Netcup's DPA;
 - production sender identities and operational mailboxes;
-- the phase-specific approvals for remote access, host changes, environment activation, provider changes, backup writes, test mail, and final production acceptance. The initial public `main` application automation is recorded in `DEC-INPUT-024`; deferred mail/OAuth/backup gates remain separate.
+- the phase-specific approvals for remote access, host changes, environment activation, provider changes, backup writes, test mail, and final production acceptance. The initial public `main` application automation is recorded in `DEC-INPUT-024`, and the completed production-mail activation is recorded in `DEC-INPUT-025`; OAuth, backup/restore, monitoring, and final acceptance remain separate.
 
 Semantic placeholders may remain during documentation work. A prompt must stop if an unresolved value would materially change what it builds.
 

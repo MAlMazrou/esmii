@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
+import { AppVersion } from "../components/app-version";
+
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -23,7 +25,10 @@ type RootLayoutProps = Readonly<{
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body>{children}</body>
+      <body>
+        {children}
+        <AppVersion />
+      </body>
     </html>
   );
 }

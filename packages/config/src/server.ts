@@ -3,6 +3,7 @@ import { isIP } from "node:net";
 
 export type AppEnvironment = "development" | "test" | "staging" | "production";
 export type AuthProviderId = "google" | "microsoft" | "apple";
+export type StagingAccessMode = "allowlist" | "open";
 export type EnvironmentMap = Readonly<Record<string, string | undefined>>;
 
 export interface OAuthProviderConfig {
@@ -26,6 +27,7 @@ export interface AuthenticationConfig {
   publicOrigin: string;
   recentAuthenticationSeconds: number;
   sessionLifetimeSeconds: number;
+  stagingAccessMode: StagingAccessMode;
   stagingTesterEmails: ReadonlySet<string>;
 }
 
@@ -205,7 +207,7 @@ function validateUrl(
   return requireOriginOnly ? parsed.origin : rawValue;
 }
 
-function canonicalizeEmail(value: string): string {
+function canonicalizeEmail(name: string, value: string): string {
   const canonical = value.trim().normalize("NFKC").toLocaleLowerCase("en-US");
   if (
     canonical.length < 3 ||
@@ -213,14 +215,16 @@ function canonicalizeEmail(value: string): string {
     canonical.includes(" ") ||
     !canonical.includes("@")
   ) {
-    throw new ConfigurationError("AUTH_STAGING_TESTER_EMAILS", "contains an invalid email");
+    throw new ConfigurationError(name, "contains an invalid email");
   }
   return canonical;
 }
 
 function parseStagingTesterEmails(rawValue: string | undefined): ReadonlySet<string> {
   if (rawValue === undefined || rawValue.trim().length === 0) return new Set<string>();
-  return new Set(rawValue.split(",").map(canonicalizeEmail));
+  return new Set(
+    rawValue.split(",").map((value) => canonicalizeEmail("AUTH_STAGING_TESTER_EMAILS", value)),
+  );
 }
 
 async function readDatabaseUrl(
@@ -532,10 +536,27 @@ export async function loadHttpServerConfig(
   }
 
   const stagingTesterEmails = parseStagingTesterEmails(stagingTesterEmailValue);
-  if (appEnvironment === "staging" && stagingTesterEmails.size === 0) {
+  const stagingAccessModeValue = environment.AUTH_STAGING_ACCESS_MODE;
+  if (
+    appEnvironment === "staging" &&
+    stagingAccessModeValue !== "open" &&
+    stagingAccessModeValue !== "allowlist"
+  ) {
+    throw new ConfigurationError(
+      "AUTH_STAGING_ACCESS_MODE",
+      "staging requires an explicit open or allowlist mode",
+    );
+  }
+  const stagingAccessMode: StagingAccessMode =
+    stagingAccessModeValue === "allowlist" ? "allowlist" : "open";
+  if (
+    appEnvironment === "staging" &&
+    stagingAccessMode === "allowlist" &&
+    stagingTesterEmails.size === 0
+  ) {
     throw new ConfigurationError(
       "AUTH_STAGING_TESTER_EMAILS",
-      "staging requires a non-empty allowlist",
+      "allowlist mode requires at least one tester",
     );
   }
 
@@ -559,6 +580,7 @@ export async function loadHttpServerConfig(
         3600,
         7_776_000,
       ),
+      stagingAccessMode,
       stagingTesterEmails,
     },
     databaseUrl,
@@ -587,11 +609,15 @@ export async function loadWorkerConfig(
   ]);
   const publicOrigin = readPublicOrigin(environment, appEnvironment);
   const publicHostname = new URL(publicOrigin).hostname;
+  const mailFromAddress = canonicalizeEmail(
+    "MAIL_FROM_ADDRESS",
+    environment.MAIL_FROM_ADDRESS ?? `noreply@${publicHostname}`,
+  );
   return {
     actionLinkKeyring: parseActionLinkKeyring(serializedKeyring, appEnvironment),
     appEnvironment,
     databaseUrl,
-    mailFromAddress: `noreply@${publicHostname}`,
+    mailFromAddress,
     messageIdDomain: `messages.${publicHostname}`,
     heartbeatIntervalMs: parseInteger(
       "WORKER_HEARTBEAT_INTERVAL_MS",

@@ -26,6 +26,9 @@ RUN --mount=type=cache,id=esmii-pnpm,target=/pnpm/store \
 
 FROM dependencies AS build
 
+ARG NEXT_PUBLIC_APP_VERSION
+ENV NEXT_PUBLIC_APP_VERSION=${NEXT_PUBLIC_APP_VERSION}
+
 COPY apps/web apps/web
 
 RUN corepack pnpm --filter @esmii/web build
@@ -34,9 +37,11 @@ FROM node:24.20.0-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd
 
 ARG ESMII_IMAGE_SOURCE=local://esmii/working-tree
 ARG ESMII_IMAGE_REVISION=development-uncommitted
+ARG ESMII_APP_VERSION
 
 LABEL org.opencontainers.image.source="${ESMII_IMAGE_SOURCE}" \
-      org.opencontainers.image.revision="${ESMII_IMAGE_REVISION}"
+      org.opencontainers.image.revision="${ESMII_IMAGE_REVISION}" \
+      org.opencontainers.image.version="${ESMII_APP_VERSION}"
 
 ENV HOSTNAME=0.0.0.0 \
     NEXT_TELEMETRY_DISABLED=1 \

@@ -73,6 +73,7 @@ describe("server configuration", () => {
         ...validEnvironment,
         APP_ENV: "staging",
         APP_PUBLIC_ORIGIN: "https://staging.esmii.app",
+        AUTH_STAGING_ACCESS_MODE: "allowlist",
         AUTH_STAGING_TESTER_EMAILS_FILE: "/run/secrets/staging_tester_allowlist",
       },
       async (path) => {
@@ -84,6 +85,27 @@ describe("server configuration", () => {
     expect(configuration.authentication.stagingTesterEmails).toEqual(
       new Set(["support@polytech.ae"]),
     );
+    expect(configuration.authentication.stagingAccessMode).toBe("allowlist");
+  });
+
+  it("supports an explicit open staging registration mode without an allowlist", async () => {
+    const configuration = await loadHttpServerConfig({
+      ...validEnvironment,
+      APP_ENV: "staging",
+      APP_PUBLIC_ORIGIN: "https://staging.esmii.app",
+      AUTH_STAGING_ACCESS_MODE: "open",
+    });
+
+    expect(configuration.authentication.stagingAccessMode).toBe("open");
+    expect(configuration.authentication.stagingTesterEmails).toEqual(new Set());
+
+    await expect(
+      loadHttpServerConfig({
+        ...validEnvironment,
+        APP_ENV: "staging",
+        APP_PUBLIC_ORIGIN: "https://staging.esmii.app",
+      }),
+    ).rejects.toThrow("staging requires an explicit open or allowlist mode");
   });
 
   it("enables mock social providers only in local/test environments", async () => {
@@ -165,6 +187,29 @@ describe("server configuration", () => {
     expect(() => getActionLinkKey(configuration.actionLinkKeyring, "magic-link", 1)).toThrow(
       "unavailable or retired",
     );
+  });
+
+  it("accepts an explicit worker sender while keeping the public link origin separate", async () => {
+    const keyring = JSON.stringify({
+      schemaVersion: 1,
+      environment: "staging",
+      keys: [
+        { purpose: "magic-link", version: 1, status: "active", key: "f".repeat(43) },
+        { purpose: "invitation", version: 1, status: "active", key: "g".repeat(43) },
+      ],
+    });
+    const configuration = await loadWorkerConfig({
+      APP_ENV: "staging",
+      APP_PUBLIC_ORIGIN: "https://staging.esmii.app",
+      APP_DATABASE_URL: validEnvironment.APP_DATABASE_URL,
+      APP_VALKEY_URL: validEnvironment.APP_VALKEY_URL,
+      SMTP_URL: "smtp://mail.esmii.app:587",
+      MAIL_FROM_ADDRESS: "staging@esmii.app",
+      ACTION_LINK_DERIVATION_KEYRING: keyring,
+    });
+
+    expect(configuration.mailFromAddress).toBe("staging@esmii.app");
+    expect(configuration.publicOrigin).toBe("https://staging.esmii.app");
   });
 
   it("keeps pg-boss schema creation and migration disabled in the worker", async () => {

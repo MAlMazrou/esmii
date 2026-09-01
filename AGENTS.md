@@ -4,7 +4,7 @@ This file applies to every agent working in this repository. It is a working con
 
 ## Package status
 
-The repository contains the **active branch-to-environment application paths** after the reviewed bootstrap, WireGuard/passwordless-sudo, rescue-recovery, SSH/UFW hardening, DNS, CI publication, and staging/initial-production gates. Prompts 02–04 retain their recorded evidence. The saved ignored inventory uses the VPN operator and hardened flags; public root/operator SSH is denied, UFW is active, management SSH is restricted to `10.77.0.2`, and the Netcup provider firewall is unchanged. Successful protected-`dev` and protected-`main` CI runs publish immutable candidate images; separate root-owned outbound timers automatically migrate and activate the exact successful revision in isolated staging and production runtimes. `https://staging.esmii.app` and `https://esmii.app` serve the real Esmii application, and the timer-driven `main` deployment path was live-verified on 30 August 2026. Prompt 06's **initial public application gate is complete**, but internet mail, production Google OAuth, real-user onboarding, offsite-backup acceptance, and final production-hardening acceptance remain inactive until their own inputs exist. Do not claim those deferred capabilities merely because the public application shell is reachable.
+The repository contains the **active branch-to-environment application paths** after the reviewed bootstrap, WireGuard/passwordless-sudo, rescue-recovery, SSH/UFW hardening, DNS, CI publication, staging/initial-production, and self-hosted-mail gates. Prompts 02–04 retain their recorded evidence. The saved ignored inventory uses the VPN operator and hardened flags; public root/operator SSH is denied, UFW is active, and management SSH is restricted to `10.77.0.2`. Successful protected-`dev` CI runs and tag-bound, versioned protected-`main` CI runs publish immutable candidate images; separate root-owned outbound timers automatically migrate and activate the exact successful revision in isolated staging and production runtimes. `https://staging.esmii.app` and `https://esmii.app` serve the real Esmii application. On 31 August 2026 the user selected exactly two staging tester addresses for both email and Google sign-in while retaining `noindex`; the exact list stays root-only outside Git, and staging account mail uses its own Stalwart sender/credential without mounting the production worker SMTP credential. Production Google OAuth, offsite-backup/restore acceptance, external monitoring acceptance, and final production-hardening acceptance remain inactive until their own inputs exist. Do not claim those deferred capabilities merely because the public application and email-login paths are reachable.
 
 The implementation is intentionally divided into numbered prompts. Execute exactly one authorized prompt at a time. Finishing a prompt is a stop point, not permission to continue.
 
@@ -17,7 +17,7 @@ Before making changes:
 3. Read `docs/requirements.md` completely.
 4. Read `docs/infrastructure.md` completely.
 5. Read `docs/environments.md` completely.
-6. Read `docs/decisions.md` completely. Also read `docs/vps-setup.md` and `docs/deployment.md` before production-oriented work.
+6. Read `docs/decisions.md` completely. Also read `docs/vps-setup.md` and `docs/deployment.md` before production-oriented work, and `docs/versioning.md` before release, build-version, changelog, or version-page work.
 7. Read every relevant `APPROVED` product/design/engineering document and inspect related `DRAFT` documents only for unresolved questions.
 8. Read the single numbered prompt authorized by the user.
 9. Inspect the current repository and preserve unrelated user changes.
@@ -76,7 +76,7 @@ The exact order is:
 
 - `dev` is the protected integration branch and the only normal destination for development work. Feature branches may merge into `dev`; do not make ordinary implementation commits directly on `main`.
 - A successful `dev` candidate is built once, identified by its full Git SHA and OCI digests, and deployed to staging. A staging deployment never authorizes production.
-- `main` is the production source branch. A successful `main` CI run publishes immutable full-SHA images and advances only the `:main` convenience pointers; the root-owned production timer resolves those pointers to digests, verifies image source/revision labels, migrates, health-checks, and rolls back on failure.
+- `main` is the production source branch. Every accepted change first passes the semantic-release workflow, which creates a bot-owned version commit, updates `CHANGELOG.md`, and tags the protected result as `vX.Y.Z`; only that tagged revision is dispatched to CI. A successful versioned `main` CI run publishes immutable full-SHA images and advances only the `:main` convenience pointers; the root-owned production timer resolves those pointers to digests, verifies source/revision/version labels, migrates, health-checks, and rolls back on failure.
 - Production and staging remain separate data, credential, media, network, and mail domains. A failed production activation keeps the preceding production runtime even though `main` may be newer; repair or revert forward rather than force-moving `main` backward.
 - Do not create `staging` or `production` branches. Environment identity comes from the release manifest, isolated configuration/state, and GitHub Environments—not extra long-lived branches.
 - Prompt 01 is read-only. Repository implementation work normally lands on `dev`. Prompt 06 owns the `main` production path; its initial public application gate was explicitly authorized on 30 August 2026.
@@ -107,7 +107,7 @@ The exact order is:
 
 Repository code that describes an external change is not authorization to perform that change.
 
-The active branch automation is narrow: `dev` may update only staging and `main` may update only production through their installed root-owned outbound timers. Both require successful push-triggered CI, immutable image resolution, matching OCI source/revision labels, one shared host lock, migrations, health checks, and environment-local rollback. Workflow, credential, provider, mail, OAuth, backup, or environment-boundary changes still require a new explicit decision.
+The active branch automation is narrow: `dev` may update only staging and `main` may update only production through their installed root-owned outbound timers. Staging requires successful push-triggered or release-sync-dispatched CI; production requires a tag-bound release dispatch after the bot version commit. Both require immutable image resolution, matching OCI source/revision/version labels, one shared host lock, migrations, health checks, and environment-local rollback. Workflow, credential, provider, mail, OAuth, backup, or environment-boundary changes still require a new explicit decision.
 
 ## Secrets and sensitive data
 

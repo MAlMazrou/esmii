@@ -6,12 +6,16 @@ describe("staging pull policy", () => {
     const script = await readFile("infra/staging-pull/esmii-staging-pull", "utf8");
 
     expect(script).toContain("/branches/dev");
-    expect(script).toContain("actions/runs?branch=dev&event=push");
+    expect(script).toContain("actions/runs?branch=dev&per_page=30");
+    expect(script).toContain('allowed={"push", "workflow_dispatch"}');
     expect(script).toContain('WEB_REVISION} == "${REMOTE_REVISION}');
     expect(script).toContain("@sha256:[0-9a-f]{64}");
     expect(script).toContain("esmii/web:sha-${REMOTE_REVISION}");
     expect(script).toContain("org.opencontainers.image.revision");
     expect(script).toContain("org.opencontainers.image.source");
+    expect(script).toContain("org.opencontainers.image.version");
+    expect(script).toContain("NEXT_PUBLIC_APP_VERSION=${BUILD_APP_VERSION}");
+    expect(script).toContain("APP_VERSION=%s");
     expect(script).not.toMatch(/\b(?:ssh|scp)\b/u);
     expect(script).not.toContain(":latest");
   });
@@ -67,5 +71,26 @@ describe("staging pull policy", () => {
     expect(puller).toContain("prepare-runtime-secrets.py");
     expect(preparer).toContain("source.chmod(0o600)");
     expect(preparer).toContain("temporary.chmod(0o444)");
+  });
+
+  it("restricts staging explicitly and uses only its scoped Stalwart submission path", async () => {
+    const [staging, production] = await Promise.all([
+      readFile("infra/compose.staging.yaml", "utf8"),
+      readFile("infra/compose.production.yaml", "utf8"),
+    ]);
+
+    expect(staging).toContain("AUTH_STAGING_ACCESS_MODE: allowlist");
+    expect(staging).toContain(
+      "AUTH_STAGING_TESTER_EMAILS_FILE: /run/secrets/staging_tester_allowlist",
+    );
+    expect(staging).toContain("SMTP_URL_FILE: /run/secrets/staging_stalwart_smtp_url");
+    expect(staging).toContain("MAIL_FROM_ADDRESS: staging@esmii.app");
+    expect(staging).toContain("NODE_EXTRA_CA_CERTS: /run/mail-ca/mail.esmii.app.pem");
+    expect(staging).toContain(
+      "/srv/myapp/staging/mail-ca/mail.esmii.app.pem:/run/mail-ca/mail.esmii.app.pem:ro",
+    );
+    expect(staging).toContain("- staging-mail-submit");
+    expect(staging).not.toContain("- production-mail-submit");
+    expect(production).toContain("staging-mail-submit:");
   });
 });

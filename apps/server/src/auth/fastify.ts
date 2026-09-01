@@ -94,7 +94,7 @@ function copyBetterAuthCookies(response: Response, reply: FastifyReply): void {
 
 function setProviderFailureCookie(reply: FastifyReply, applicationOrigin: string): void {
   const secure = new URL(applicationOrigin).protocol === "https:";
-  const name = secure ? "__Host-esmii.auth-result" : "esmii.auth-result";
+  const name = secure ? "__Secure-esmii.auth-result" : "esmii.auth-result";
   void reply.header(
     "set-cookie",
     `${name}=provider_failed; Path=/api/auth/result; HttpOnly; SameSite=Lax; Max-Age=${authResultCookieLifetimeSeconds}${secure ? "; Secure" : ""}`,

@@ -82,6 +82,9 @@ test("routes an unauthenticated visitor to the passwordless sign-in surface", as
   await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Microsoft/u })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Apple/u })).toHaveCount(0);
+  await expect(page.getByRole("contentinfo", { name: "Application version" })).toHaveText(
+    /^v0\.\d+\.\d+$/u,
+  );
 });
 
 test("has no horizontal overflow on the sign-in surface", async ({ page }) => {

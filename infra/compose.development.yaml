@@ -40,6 +40,9 @@ services:
     build:
       context: ..
       dockerfile: apps/web/Dockerfile
+      args:
+        ESMII_APP_VERSION: "${ESMII_APP_VERSION:?application version is required}"
+        NEXT_PUBLIC_APP_VERSION: "${NEXT_PUBLIC_APP_VERSION:?public application version is required}"
     command: ["node", "apps/web/server.js"]
     environment:
       NODE_ENV: production
@@ -69,6 +72,8 @@ services:
     build:
       context: ..
       dockerfile: apps/server/Dockerfile
+      args:
+        ESMII_APP_VERSION: "${ESMII_APP_VERSION:?application version is required}"
     command: ["node", "dist/entrypoints/http.js"]
     environment:
       NODE_ENV: production

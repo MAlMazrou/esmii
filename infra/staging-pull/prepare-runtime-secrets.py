@@ -25,6 +25,7 @@ RUNTIME_SECRET_FILES = (
     "operations-health-token",
     "better-auth-secret",
     "action-link-derivation-keyring",
+    "stalwart-smtp-url",
     "tester-allowlist",
     "auth-google-client-id",
     "auth-google-client-secret",
