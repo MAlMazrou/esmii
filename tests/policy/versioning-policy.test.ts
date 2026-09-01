@@ -60,4 +60,8 @@ describe("semantic release policy", () => {
     const commitlint = await readFile("scripts/commitlint-ci.mjs", "utf8");
     expect(commitlint).toContain('"rev-list", "--first-parent", "--reverse"');
   });
+  it("does not reject valid squash commits solely for wrapped body prose", async () => {
+    const configuration = await readFile("commitlint.config.mjs", "utf8");
+    expect(configuration).toContain('"body-max-line-length": [0]');
+  });
 });
