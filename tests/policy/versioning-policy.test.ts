@@ -2,9 +2,12 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 describe("semantic release policy", () => {
-  it("initializes the application at v0.1.0 and keeps workspace packages private", async () => {
+  it("keeps the released application at or above v0.1.0 and below v1.0.0", async () => {
     const root = JSON.parse(await readFile("package.json", "utf8"));
-    expect(root.version).toBe("0.1.0");
+    const match = /^(\d+)\.(\d+)\.(\d+)$/u.exec(root.version);
+    expect(match).not.toBeNull();
+    expect(Number(match?.[1])).toBe(0);
+    expect(Number(match?.[2])).toBeGreaterThanOrEqual(1);
     expect(root.private).toBe(true);
   });
 
@@ -27,6 +30,10 @@ describe("semantic release policy", () => {
     );
 
     const pushTrigger = ci.slice(ci.indexOf("  push:"), ci.indexOf("  workflow_dispatch:"));
+    const pullRequestTrigger = ci.slice(ci.indexOf("  pull_request:"), ci.indexOf("  push:"));
+    expect(pullRequestTrigger).toContain("paths-ignore:");
+    expect(pullRequestTrigger).toContain("- package.json");
+    expect(pullRequestTrigger).toContain("- CHANGELOG.md");
     expect(pushTrigger).toContain("- dev");
     expect(pushTrigger).not.toContain("- main");
     expect(ci).toContain("node scripts/verify-version-context.mjs");

@@ -5,6 +5,9 @@ on:
     branches:
       - dev
       - main
+    paths-ignore:
+      - package.json
+      - CHANGELOG.md
   push:
     branches:
       - dev
