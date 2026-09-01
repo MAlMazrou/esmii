@@ -11,6 +11,6 @@
       "type": "json"
     }
   ],
-  "releaseCommitMessageFormat": "chore(release): {{currentTag}}",
+  "releaseCommitMessageFormat": "chore(release): {{currentTag}} [skip ci]",
   "tagPrefix": "v"
 }

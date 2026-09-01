@@ -12,9 +12,10 @@ describe("semantic release policy", () => {
   });
 
   it("runs the release bot on main before dispatching the deployable CI build", async () => {
-    const [release, ci] = await Promise.all([
+    const [release, ci, releaseConfiguration] = await Promise.all([
       readFile(".github/workflows/release.yaml", "utf8"),
       readFile(".github/workflows/ci.yaml", "utf8"),
+      readFile(".versionrc.json", "utf8"),
     ]);
 
     expect(release).toMatch(/push:\n\s+branches:\n\s+- main/u);
@@ -30,13 +31,12 @@ describe("semantic release policy", () => {
     );
 
     const pushTrigger = ci.slice(ci.indexOf("  push:"), ci.indexOf("  workflow_dispatch:"));
-    const pullRequestTrigger = ci.slice(ci.indexOf("  pull_request:"), ci.indexOf("  push:"));
-    expect(pullRequestTrigger).toContain("paths-ignore:");
-    expect(pullRequestTrigger).toContain("- package.json");
-    expect(pullRequestTrigger).toContain("- CHANGELOG.md");
     expect(pushTrigger).toContain("- dev");
     expect(pushTrigger).not.toContain("- main");
     expect(ci).toContain("node scripts/verify-version-context.mjs");
+    expect(releaseConfiguration).toContain(
+      '"releaseCommitMessageFormat": "chore(release): {{currentTag}} [skip ci]"',
+    );
   });
 
   it("passes the package-derived version before the Next.js Docker build", async () => {

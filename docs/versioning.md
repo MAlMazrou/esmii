@@ -37,7 +37,7 @@ Every accepted push or merge to protected `main` starts [`.github/workflows/rele
 
 The CI workflow no longer builds a direct `main` push. It accepts production only after the release commit and tag exist. This guarantees that the version bump happens before `next build` and before deployment. A failed release preparation or merge produces no tag and dispatches no deployable build.
 
-The short-lived bot release pull request changes only `package.json` and `CHANGELOG.md`, so the generic pull-request CI intentionally ignores that exact two-file change. This avoids racing the bot branch deletion while the release workflow is merging it. The release workflow validates the generated metadata, and the immutable tagged `main` plus synchronized `dev` revisions then run the complete CI suite before either candidate pointer can advance.
+The bot-generated release commit includes GitHub's `[skip ci]` marker. That marker applies only to the generated release commit and prevents its short-lived pull request from racing branch deletion; ordinary pull requests that edit `package.json` or `CHANGELOG.md` still run the full suite. The release workflow validates the generated metadata, and the immutable tagged `main` plus synchronized `dev` revisions then run complete CI before either candidate pointer can advance.
 
 Do not run `release:prepare` manually on `dev`. Normal work uses Conventional Commit messages and lets the protected `main` workflow own release commits and tags.
 
