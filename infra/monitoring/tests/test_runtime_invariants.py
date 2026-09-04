@@ -305,6 +305,33 @@ class RuntimeInvariantTests(unittest.TestCase):
         self.assertLess(installer.index("if [[ ${action} == install-shared ]]"), installer.index("install -o root -g root -m 0644"))
         self.assertNotRegex(installer, r"ufw allow[^\n]*(?:from any|to any)[^\n]*9100")
 
+    def test_compatible_host_payload_rebind_is_byte_identical_and_quiescent(self):
+        installer = read("infra/monitoring/install-host-collectors.sh")
+        self.assertIn("--rebind-compatible-shared", installer)
+        self.assertLess(
+            installer.index("if [[ ${action} == rebind-compatible-shared ]]"),
+            installer.index("\nensure_directories\n"),
+        )
+        rebind = installer[
+            installer.index("rebind_compatible_host_payload() {") : installer.index(
+                "if [[ ${action} == rebind-compatible-shared ]]"
+            )
+        ]
+        self.assertIn("verify_installed_files_match_candidate", rebind)
+        self.assertIn("verify_pull_wrapper_integration", rebind)
+        self.assertIn("verify_rebind_quiescence", rebind)
+        self.assertIn("environment_is_registered", installer)
+        self.assertIn("monitoring container exists", installer)
+        self.assertIn("environment proxy is active", installer)
+        self.assertIn("environment proxy socket is enabled", installer)
+        self.assertIn("exporter rule exists", installer)
+        self.assertIn("restored all prior identity records", rebind)
+        self.assertNotIn("systemctl enable", rebind)
+        self.assertNotIn("systemctl disable", rebind)
+        self.assertNotIn("systemctl start", rebind)
+        self.assertNotIn("systemctl stop", rebind)
+        self.assertNotIn("install -o root", rebind)
+
     def test_pull_wrapper_cleanup_cannot_turn_success_into_failure(self):
         installer = read("infra/monitoring/install-pull-wrapper-integration.sh")
         cleanup = installer[
