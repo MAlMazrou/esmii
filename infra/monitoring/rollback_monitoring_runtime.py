@@ -12,6 +12,11 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+# This script runs directly from the sealed, root-owned host payload. Importing
+# the sibling renderer must never add a __pycache__ directory to that immutable
+# tree, because every later host mutation re-verifies the exact payload file set.
+sys.dont_write_bytecode = True
+
 from render_monitoring import (
     LIVE_RUNTIME_ROOT,
     environment_lock,
