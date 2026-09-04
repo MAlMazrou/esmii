@@ -105,6 +105,19 @@ describe("repository policy", () => {
     }
   });
 
+  it("ships and exercises the dashboard operator CLI in the production image", async () => {
+    const dockerfile = await readFile("apps/dashboard/Dockerfile", "utf8");
+    const images = await readFile("scripts/images.mjs", "utf8");
+
+    expect(dockerfile).toContain("--prod deploy /dashboard-operator-runtime");
+    expect(dockerfile).toContain(
+      "/dashboard-operator-runtime/node_modules ./apps/dashboard/node_modules",
+    );
+    expect(images).toContain("verifyDashboardOperatorCli(name)");
+    expect(images).toContain("/app/apps/dashboard/scripts/operator-auth.ts");
+    expect(images).toContain('"migrate"');
+  });
+
   it("binds CI image provenance to the checked-out GitHub revision", async () => {
     const contents = await readFile(".github/workflows/ci.yaml", "utf8");
     expect(contents).toContain("ESMII_IMAGE_REVISION: ${{ github.sha }}");
