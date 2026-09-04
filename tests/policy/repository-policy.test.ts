@@ -111,11 +111,11 @@ describe("repository policy", () => {
 
     expect(dockerfile).toContain("pnpm --filter @esmii/dashboard build:operator-cli");
     expect(dockerfile).toContain(
-      "/workspace/apps/dashboard/dist/operator-auth.mjs ./apps/dashboard/operator-auth.mjs",
+      "/workspace/apps/dashboard/dist/operator-auth.cjs ./apps/dashboard/operator-auth.cjs",
     );
     expect(dockerfile).not.toContain("/dashboard-operator-runtime/node_modules");
     expect(images).toContain("verifyDashboardOperatorCli(name)");
-    expect(images).toContain("/app/apps/dashboard/operator-auth.mjs");
+    expect(images).toContain("/app/apps/dashboard/operator-auth.cjs");
     expect(images).toContain('image.kind === "server" || image.kind === "dashboard"');
     expect(images).toContain('"migrate"');
   });

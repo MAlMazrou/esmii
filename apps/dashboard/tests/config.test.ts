@@ -14,6 +14,8 @@ const BASE = {
   DASHBOARD_ORIGIN: "http://127.0.0.1:3010",
   DASHBOARD_PEER_ORIGIN: "http://localhost:3011",
   DASHBOARD_PROMETHEUS_URL: "http://staging-prometheus:9090",
+  DASHBOARD_SMTP_URL:
+    "smtp://monitoring-staging%40esmii.app:test-password-material-more-than-32-characters@mail.esmii.app:587?requireTLS=true",
   NODE_ENV: "test",
 } as const;
 
@@ -95,9 +97,50 @@ describe("dashboard configuration", () => {
         ...production,
         DASHBOARD_AUTH_SECRET: undefined,
         DASHBOARD_AUTH_SECRET_FILE: "/run/secrets/dashboard-auth-secret",
+        DASHBOARD_SMTP_URL: undefined,
+        DASHBOARD_SMTP_URL_FILE: "/run/secrets/dashboard-smtp-url",
       },
-      () => "production-test-secret-material-over-thirty-two-characters\n",
+      (path) =>
+        path.endsWith("dashboard-smtp-url")
+          ? "smtp://monitoring%40esmii.app:test-password-material-more-than-32-characters@mail.esmii.app:587?requireTLS=true\n"
+          : "production-test-secret-material-over-thirty-two-characters\n",
     );
     expect(config.secret).toBe("production-test-secret-material-over-thirty-two-characters");
+    expect(config.emailOtpFrom).toBe("monitoring@esmii.app");
+    expect(config.smtpUrl).toContain("mail.esmii.app:587?requireTLS=true");
+    expect(config.emailOtpCaptureFile).toBeNull();
+  });
+
+  it("allows OTP capture only for loopback fixtures and enforces authenticated STARTTLS", () => {
+    expect(
+      parseDashboardAuthConfig({
+        ...BASE,
+        DASHBOARD_EMAIL_OTP_CAPTURE_FILE: "/private/tmp/operator-otp",
+        DASHBOARD_SMTP_URL: undefined,
+        MONITORING_FIXTURE_MODE: "true",
+      }).emailOtpCaptureFile,
+    ).toBe("/private/tmp/operator-otp");
+    expect(() =>
+      parseDashboardAuthConfig({
+        ...BASE,
+        DASHBOARD_SMTP_URL: "smtp://mail.esmii.app:587?requireTLS=true",
+      }),
+    ).toThrow(/authenticated STARTTLS/u);
+    expect(() =>
+      parseDashboardAuthConfig({
+        ...BASE,
+        DASHBOARD_SMTP_URL:
+          "smtp://monitoring%40esmii.app:test-password-material-more-than-32-characters@mail.esmii.app:587?requireTLS=true",
+      }),
+    ).toThrow(/authenticated STARTTLS/u);
+    expect(() =>
+      parseDashboardAuthConfig({
+        ...BASE,
+        DASHBOARD_EMAIL_OTP_CAPTURE_FILE: "/private/tmp/operator-otp",
+        DASHBOARD_ORIGIN: "https://staging-dashboard.esmii.app",
+        DASHBOARD_SMTP_URL: undefined,
+        MONITORING_FIXTURE_MODE: "true",
+      }),
+    ).toThrow(/loopback fixtures/u);
   });
 });

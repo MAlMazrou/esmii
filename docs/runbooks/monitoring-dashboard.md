@@ -9,6 +9,7 @@ This runbook covers Prompt 07's separately gated monitoring rollout and rollback
 - `infra/compose.monitoring.{staging,production}.edge.yaml` — separately gated Caddy attachments.
 - `infra/monitoring/prometheus/` — environment-local scrape and rule configuration.
 - `infra/monitoring/{container_metrics_collector.py,log_collector.py}` — fixed root-owned collectors.
+- `infra/monitoring/provision_dashboard_mail.py` — root-only idempotent provisioning of the environment's dedicated Stalwart email-OTP sender and mode-`0600` SMTP URL.
 - `infra/systemd/esmii-{node-exporter,container-metrics-collector,log-collector}*` — private exporter/proxy and bounded timer units.
 - `infra/monitoring/{install-host-collectors.sh,rollback-host-collectors.sh}` — shared collector install/enable and environment-specific rollback boundaries.
 - `infra/monitoring/{install-monitoring-runtime.sh,rollback_monitoring_runtime.py}` — immutable environment render and bounded rendered-config rollback.
@@ -16,7 +17,7 @@ This runbook covers Prompt 07's separately gated monitoring rollout and rollback
 - `infra/monitoring/install-pull-wrapper-integration.sh` — the fixed updater/validator for the already active staging and production pull wrappers; it does not start, stop, or reload a service.
 - `scripts/monitoring-payload.mjs` and `infra/monitoring/monitoring_payload.py` — deterministic build plus fail-closed verification/materialization for the exact Prompt-07 host payload. The closed payload contains the monitoring host code/configuration, Docker firewall helper, and both active pull wrappers; it excludes dashboard application source and all tests.
 
-The canonical secret remains a root-owned mode-`0600` file under `/etc/esmii/monitoring/<environment>/`. A no-network one-shot copies only that secret into the fixed, labeled, environment-local Docker handoff volume at mode `0440` for UID/GID `10003`; purge that detached copy during rollback or rotation. The dashboard receives no Docker socket, journal, application database, customer-auth state, or other environment's state. A rendered manifest is inert: only the fixed manager may atomically create/remove the root-owned `private-enabled` and `edge-enabled` markers. An edge marker is invalid without its private marker. Host installation is never sourced from a checkout: every mutating entry point re-verifies the root-only materialized payload against the separately approved digest and full revision before it creates a lock/directory or changes a host file. The installed collector record, pull-wrapper integration record, and each environment runtime manifest bind that same payload identity.
+The canonical auth secret and dedicated SMTP URL remain separate root-owned mode-`0600` files under `/etc/esmii/monitoring/<environment>/`. A no-network one-shot copies only those two secrets into the fixed, labeled, environment-local Docker handoff volume at mode `0440` for UID/GID `10003`; purge that detached copy during rollback or rotation. The dashboard receives no Docker socket, journal, application database, customer-auth state, or other environment's state. Its only application-side network attachment is the matching internal `mail-submit` network, used with the dedicated monitoring sender for certificate-verified STARTTLS to `mail.esmii.app`; it receives no worker/customer SMTP credential. A rendered manifest is inert: only the fixed manager may atomically create/remove the root-owned `private-enabled` and `edge-enabled` markers. An edge marker is invalid without its private marker. Host installation is never sourced from a checkout: every mutating entry point re-verifies the root-only materialized payload against the separately approved digest and full revision before it creates a lock/directory or changes a host file. The installed collector record, pull-wrapper integration record, and each environment runtime manifest bind that same payload identity.
 
 This first release does not install an OpenTelemetry Collector or application SDK, and Prometheus does not enable its OTLP receiver, remote-write receiver, admin API, or lifecycle API. The application-monitoring cards are a stable typed empty state for a later, separately approved instrumentation decision; they do not fabricate telemetry.
 
@@ -39,7 +40,7 @@ corepack pnpm scan:secrets
 Render both private and edge compositions with synthetic local paths before any host proposal. Validate that:
 
 - no `ports`, host networking, Docker socket, journal, or cross-environment state mount appears;
-- the dashboard is on only its environment's edge/data networks and Prometheus only on its data network;
+- the dashboard is on only its environment's edge/data networks plus its matching internal `mail-submit` network, and Prometheus only on its data network;
 - the private composition contains no `caddy` service or dashboard Caddy fragment;
 - only the edge overlay attaches Caddy and mounts the exact environment site;
 - memory limits total 1,088 MiB and Prometheus retains seven days or 1 GB; and
@@ -131,6 +132,13 @@ sudo stat -c '%U:%G %a %n' \
 
 All installed files and records must be `root:root`; executable programs are mode `0755` and the two identity records are mode `0600`. Re-read both active timers afterward without restarting them, and run each timer's installed wrapper with `bash -n`. Stop if a byte/hash/mode differs, either record names a different payload identity, or a timer stopped unexpectedly. Manifest materialization and these installations still leave both `private-enabled` markers absent.
 
+Provision or reconcile the dedicated sender before rendering the environment. This command reads the existing root-only Stalwart administrator credential in memory, creates or updates only `monitoring-staging@esmii.app` for staging or `monitoring@esmii.app` for production, writes only `/etc/esmii/monitoring/<environment>/dashboard-smtp-url` at root-owned mode `0600`, and never prints the generated credential. Do not reuse the application worker sender or copy this file between environments.
+
+```bash
+sudo "${ESMII_MONITORING_PAYLOAD_ROOT}"/infra/monitoring/provision_dashboard_mail.py <ENVIRONMENT>
+sudo stat -c '%U:%G %a %n' /etc/esmii/monitoring/<ENVIRONMENT>/dashboard-smtp-url
+```
+
 The reviewed render entry point is:
 
 ```bash
@@ -169,15 +177,16 @@ sudo "${ESMII_MONITORING_PAYLOAD_ROOT}"/infra/monitoring/install-host-collectors
 
 Use the equivalent production action only after production approval. Never add a public `9090`/`9100` rule or Caddy route.
 
-From a root-controlled TTY reached through the existing WireGuard operator peer `10.77.0.2` to server `10.77.0.1`, run the dashboard's operator database migration and `provision`, `recover`, or `revoke-sessions` command inside the matching running container. Identity/code inputs come from its TTY or protected files; never pass passwords, TOTP material, cookies, or email addresses as command arguments. Remove the mode-`0600` bootstrap output immediately after the authenticator enrollment is verified. This private path is not a public-reachability test.
+From a root-controlled TTY reached through the existing WireGuard operator peer `10.77.0.2` to server `10.77.0.1`, run the dashboard's operator database migration and `provision`, `retarget`, `recover`, or `revoke-sessions` command inside the matching running container. Identity input comes from a protected file or its TTY; never pass passwords, SMTP credentials, OTPs, cookies, or email addresses as command arguments. `retarget` requires exactly one existing operator, changes that record's email, generates a new temporary password, clears legacy TOTP/OTP state, and revokes every session. Remove the mode-`0600` bootstrap output immediately after the first successful password-change and email-OTP verification. This private path is not a public-reachability test.
 
 Private verification must prove:
 
 - anonymous, password-only, wrong-environment, expired, and revoked sessions retrieve zero monitoring data;
-- TOTP is required on every new login, the temporary password must change, and the session expires within eight hours;
+- a six-digit, five-minute, single-use email OTP is required for every password-created session, the recipient is fixed to that session's operator email, the temporary password must change only after OTP verification, and the session expires within eight hours;
+- the dashboard submits through only its matching internal `mail-submit` network using its dedicated sender and certificate-verified STARTTLS; staging and production SMTP credentials are different and neither can use the other's network;
 - staging queries only staging plus shared-host metrics/logs and cannot reach production Prometheus/state;
 - collector age over 90 seconds becomes unknown/stale, worker age over three minutes degrades, and stopped/OOM/restarted/unhealthy services and failed timers surface correctly;
-- snapshots contain only warning/error safe fields and pass credential, cookie, email, IP, URL/query, SQL, path, stack, OAuth/TOTP, and truncation sentinels;
+- snapshots contain only warning/error safe fields and pass credential, cookie, email, IP, URL/query, SQL, path, stack, OAuth/OTP/TOTP, and truncation sentinels;
 - ports `3000`, `9090`, and `9100` have no public IPv4/IPv6 listener or route; and
 - the resource/retention ceilings match [`resource-budget.md`](resource-budget.md).
 
@@ -199,7 +208,7 @@ Collect the evidence listed in [`resource-budget.md`](resource-budget.md) contin
 
 ## Gate 6 — production
 
-Production requires a new explicit approval, new production-only canonical secret/operator/TOTP/SQLite state, the exact accepted dashboard digest, its own inert render followed by `manage-monitoring-runtime start-private production`, collector enablement, and repeat isolation/auth/private-port checks. A later, separate `dashboard.esmii.app` DNS/TLS approval uses `manage-monitoring-runtime enable-edge production`. Staging credentials, cookies, secret handoff, snapshots, and Prometheus data are never promoted.
+Production requires a new explicit approval, new production-only canonical auth/SMTP secrets, operator/SQLite state, the exact accepted dashboard digest, its own inert render followed by `manage-monitoring-runtime start-private production`, collector enablement, and repeat isolation/auth/private-port checks. A later, separate `dashboard.esmii.app` DNS/TLS approval uses `manage-monitoring-runtime enable-edge production`. Staging credentials, cookies, secret handoff, snapshots, and Prometheus data are never promoted.
 
 ## Rollback
 
@@ -224,4 +233,4 @@ sudo "${ESMII_MONITORING_PAYLOAD_ROOT}"/infra/monitoring/rollback-host-collector
 
 Use the production confirmation strings only for an approved production rollback. Shared collector removal is a separate exact-confirmation action and is refused while either environment remains registered/active. Durable Prometheus/auth/log state and the canonical `/etc` secret are preserved for diagnosis; delete or rotate them only under a separate bounded approval.
 
-Never restore service by exposing Prometheus/exporter ports, mounting Docker/journal into the dashboard, reusing the other environment's credential, disabling TOTP, or adding Grafana/Loki/cAdvisor. Same-host monitoring also cannot detect complete VPS/provider/DNS loss; that remains the separate off-host outage-monitor gate.
+Never restore service by exposing Prometheus/exporter ports, mounting Docker/journal into the dashboard, reusing the other environment's credential, bypassing email OTP, or adding Grafana/Loki/cAdvisor. Same-host monitoring also cannot detect complete VPS/provider/DNS loss; that remains the separate off-host outage-monitor gate.

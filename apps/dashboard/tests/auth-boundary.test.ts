@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   createOperatorRateLimitStorage,
+  isOperatorEmailOtpSessionVerified,
+  markOperatorEmailOtpSessionVerified,
   openOperatorDatabase,
   OPERATOR_AUDIT_MAX_ROWS,
   OPERATOR_RATE_LIMIT_MAX_ROWS,
@@ -20,7 +22,7 @@ import {
   isPublicOperatorAuthRequestAllowed,
   normalizeOperatorPasswordChangeBody,
   normalizeOperatorSignInBody,
-  normalizeOperatorTotpBody,
+  normalizeOperatorEmailOtpVerificationBody,
   OPERATOR_AUTH_BODY_LIMIT_BYTES,
   OPERATOR_SESSION_SECONDS,
   projectGenericAuthFailure,
@@ -49,43 +51,52 @@ function databaseFile(): string {
 
 const CONFIG: DashboardAuthConfig = {
   databaseFile: "/private/tmp/test.sqlite",
+  emailOtpCaptureFile: "/private/tmp/operator-email-otp",
+  emailOtpFrom: "monitoring@esmii.app",
   environment: "production",
   origin: "https://dashboard.esmii.app",
   peerOrigin: "https://staging-dashboard.esmii.app",
   secret: "test-only-secret-material-with-more-than-thirty-two-characters",
+  smtpUrl: null,
   themeFixture: null,
 };
 
 describe("operator authentication boundary", () => {
-  it("caps auth bodies before JSON parsing and strips trusted-device requests", async () => {
+  it("caps auth bodies before JSON parsing and injects the authenticated email", async () => {
     const validRequest = new Request(
-      "https://dashboard.esmii.app/api/operator-auth/two-factor/verify-totp",
+      "https://dashboard.esmii.app/api/operator-auth/email-otp/verify-email",
       {
-        body: JSON.stringify({ code: "123456", trustDevice: true }),
+        body: JSON.stringify({ code: "123456", email: "attacker@example.test" }),
         method: "POST",
       },
     );
     const validBody = await readBoundedOperatorAuthBody(validRequest);
-    expect(JSON.parse(new TextDecoder().decode(normalizeOperatorTotpBody(validBody)))).toEqual({
-      code: "123456",
-      trustDevice: false,
-    });
+    expect(
+      JSON.parse(
+        new TextDecoder().decode(
+          normalizeOperatorEmailOtpVerificationBody(validBody, "operator@example.test"),
+        ),
+      ),
+    ).toEqual({ email: "operator@example.test", otp: "123456" });
 
     const oversized = new Request(
-      "https://dashboard.esmii.app/api/operator-auth/two-factor/verify-totp",
+      "https://dashboard.esmii.app/api/operator-auth/email-otp/verify-email",
       {
         body: "x".repeat(OPERATOR_AUTH_BODY_LIMIT_BYTES + 1),
         method: "POST",
       },
     );
     expect(await readBoundedOperatorAuthBody(oversized)).toBeNull();
-    expect(JSON.parse(new TextDecoder().decode(normalizeOperatorTotpBody(null)))).toEqual({
-      code: "",
-      trustDevice: false,
-    });
+    expect(
+      JSON.parse(
+        new TextDecoder().decode(
+          normalizeOperatorEmailOtpVerificationBody(null, "operator@example.test"),
+        ),
+      ),
+    ).toEqual({ email: "operator@example.test", otp: "" });
   });
 
-  it("forces remembered sign-in so TOTP cannot inherit Better Auth's 24-hour temporary session", () => {
+  it("forces remembered sign-in so email OTP uses the fixed eight-hour session", () => {
     const attackerBody = new TextEncoder().encode(
       JSON.stringify({
         callbackURL: "https://attacker.invalid/",
@@ -147,13 +158,22 @@ describe("operator authentication boundary", () => {
     expect(request.bodyUsed).toBe(false);
   });
 
-  it("exposes only sign-in, TOTP, bootstrap change, and sign-out", () => {
+  it("exposes only sign-in, email OTP, bootstrap change, and sign-out", () => {
     expect(isPublicOperatorAuthRequestAllowed("POST", "/api/operator-auth/sign-in/email")).toBe(
       true,
     );
     expect(
-      isPublicOperatorAuthRequestAllowed("POST", "/api/operator-auth/two-factor/verify-totp"),
+      isPublicOperatorAuthRequestAllowed(
+        "POST",
+        "/api/operator-auth/email-otp/send-verification-otp",
+      ),
     ).toBe(true);
+    expect(
+      isPublicOperatorAuthRequestAllowed("POST", "/api/operator-auth/email-otp/verify-email"),
+    ).toBe(true);
+    expect(isPublicOperatorAuthRequestAllowed("POST", "/api/operator-auth/sign-in/email-otp")).toBe(
+      false,
+    );
     expect(isPublicOperatorAuthRequestAllowed("GET", "/api/operator-auth/get-session")).toBe(false);
     expect(isPublicOperatorAuthRequestAllowed("POST", "/api/operator-auth/sign-up/email")).toBe(
       false,
@@ -162,10 +182,7 @@ describe("operator authentication boundary", () => {
       isPublicOperatorAuthRequestAllowed("POST", "/api/operator-auth/request-password-reset"),
     ).toBe(false);
     expect(
-      isPublicOperatorAuthRequestAllowed(
-        "POST",
-        "/api/operator-auth/two-factor/verify-backup-code",
-      ),
+      isPublicOperatorAuthRequestAllowed("POST", "/api/operator-auth/two-factor/verify-totp"),
     ).toBe(false);
     expect(
       isPublicOperatorAuthRequestAllowed("POST", "/api/operator-auth/two-factor/disable"),
@@ -188,7 +205,7 @@ describe("operator authentication boundary", () => {
     );
     const response = projectTokenFreeAuthSuccess(
       upstream,
-      "POST /two-factor/verify-totp",
+      "POST /email-otp/verify-email",
       "request-1",
     );
     const serialized = JSON.stringify(await response.json());
@@ -235,23 +252,50 @@ describe("operator authentication boundary", () => {
     expect(options.rateLimit?.storage).toBe("database");
     expect(options.rateLimit?.customStorage).toBeDefined();
     expect(options.rateLimit?.customRules?.["/sign-in/email"]).toEqual({ max: 5, window: 900 });
+    expect(options.rateLimit?.customRules?.["/email-otp/verify-email"]).toEqual({
+      max: 5,
+      window: 900,
+    });
     expect(options.emailAndPassword?.disableSignUp).toBe(true);
     expect(statSync(file).mode & 0o777).toBe(0o600);
     database.close();
   });
 
-  it("requires both TOTP enrollment and temporary-password replacement", () => {
+  it("requires a per-session email OTP proof and temporary-password replacement", () => {
     const database = openOperatorDatabase(databaseFile());
-    writeOperatorSecurityState(database, "operator-1", { totpEnrollmentVerified: true });
+    writeOperatorSecurityState(database, "operator-1", { passwordChanged: false });
     expect(readOperatorSecurityState(database, "operator-1")).toEqual({
       passwordChanged: false,
-      totpEnrollmentVerified: true,
     });
     writeOperatorSecurityState(database, "operator-1", { passwordChanged: true });
     expect(readOperatorSecurityState(database, "operator-1")).toEqual({
       passwordChanged: true,
-      totpEnrollmentVerified: true,
     });
+    const expiresAt = new Date(Date.now() + 60_000);
+    markOperatorEmailOtpSessionVerified(database, {
+      expiresAt,
+      sessionId: "session-1",
+      userId: "operator-1",
+    });
+    expect(
+      isOperatorEmailOtpSessionVerified(database, {
+        sessionId: "session-1",
+        userId: "operator-1",
+      }),
+    ).toBe(true);
+    expect(
+      isOperatorEmailOtpSessionVerified(database, {
+        sessionId: "session-2",
+        userId: "operator-1",
+      }),
+    ).toBe(false);
+    expect(
+      isOperatorEmailOtpSessionVerified(
+        database,
+        { sessionId: "session-1", userId: "operator-1" },
+        new Date(expiresAt.getTime() + 1),
+      ),
+    ).toBe(false);
     database.close();
   });
 
@@ -286,7 +330,6 @@ describe("operator authentication boundary", () => {
     ).toBe("esmii-dashboard-production");
     writeOperatorSecurityState(staging, "same-operator-id", {
       passwordChanged: true,
-      totpEnrollmentVerified: true,
     });
     expect(readOperatorSecurityState(staging, "same-operator-id")?.passwordChanged).toBe(true);
     expect(readOperatorSecurityState(production, "same-operator-id")).toBeNull();

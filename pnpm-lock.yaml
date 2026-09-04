@@ -50,6 +50,9 @@ importers:
       next:
         specifier: 16.3.3
         version: 16.3.3(@playwright/test@1.62.1)(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      nodemailer:
+        specifier: 9.0.6
+        version: 9.0.6
       react:
         specifier: 19.2.8
         version: 19.2.8
@@ -57,6 +60,9 @@ importers:
         specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
     devDependencies:
+      "@types/nodemailer":
+        specifier: 8.0.1
+        version: 8.0.1
       "@types/react":
         specifier: 19.2.18
         version: 19.2.18

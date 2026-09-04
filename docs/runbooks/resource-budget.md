@@ -60,7 +60,7 @@ Production monitoring remains disabled until staging monitoring runs continuousl
 - host available RAM, page-cache pressure, swap use, OOM events, load/CPU, disk/inode use, and I/O latency;
 - customer web/API/worker/database/mail latency, error, restart, and queue behavior before versus during the soak;
 - Prometheus TSDB size/retention behavior, snapshot age/count/bytes, collector duration/overlap, and stale/degraded signals; and
-- cross-environment isolation, authentication/TOTP, redaction sentinels, and private-port checks.
+- cross-environment isolation, password/email-OTP authentication and delivery, redaction sentinels, and private-port checks.
 
 Acceptance requires no sustained RAM above 70%, sustained normal-load swap, OOM, repeated restart, disk/inode threshold breach, collector overlap, unbounded growth, secret leakage, cross-environment access, or unacceptable customer-application latency. Sustained 75% RAM or any OOM is an immediate capacity incident, not a soak success.
 

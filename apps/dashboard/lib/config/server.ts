@@ -12,7 +12,10 @@ export interface PublicDashboardConfig {
 
 export interface DashboardAuthConfig extends PublicDashboardConfig {
   readonly databaseFile: string;
+  readonly emailOtpCaptureFile: string | null;
+  readonly emailOtpFrom: string;
   readonly secret: string;
+  readonly smtpUrl: string | null;
 }
 
 export interface MonitoringServerConfig extends PublicDashboardConfig {
@@ -178,6 +181,40 @@ function readSecret(
   return value;
 }
 
+function parseDashboardSmtpUrl(value: string, expectedEmail: string): string {
+  let parsed: URL;
+  let username: string;
+  let password: string;
+  try {
+    parsed = new URL(value);
+    username = decodeURIComponent(parsed.username);
+    password = decodeURIComponent(parsed.password);
+  } catch {
+    throw new TypeError("DASHBOARD_SMTP_URL_FILE must contain an absolute SMTP URL");
+  }
+  if (
+    parsed.protocol !== "smtp:" ||
+    parsed.hostname !== "mail.esmii.app" ||
+    parsed.port !== "587" ||
+    username !== expectedEmail ||
+    password.length < 32 ||
+    password.length > 512 ||
+    [...password].some((character) => {
+      const code = character.codePointAt(0) ?? 0;
+      return code < 33 || code > 126;
+    }) ||
+    (parsed.pathname !== "" && parsed.pathname !== "/") ||
+    parsed.hash !== "" ||
+    parsed.searchParams.size !== 1 ||
+    parsed.searchParams.get("requireTLS") !== "true"
+  ) {
+    throw new TypeError(
+      "DASHBOARD_SMTP_URL_FILE must use authenticated STARTTLS submission to mail.esmii.app:587",
+    );
+  }
+  return value;
+}
+
 export function parsePublicDashboardConfig(
   env: EnvironmentRecord = process.env,
 ): PublicDashboardConfig {
@@ -227,18 +264,63 @@ export function parseDashboardAuthConfig(
   readFile: (path: string, encoding: BufferEncoding) => string = readFileSync,
 ): DashboardAuthConfig {
   const publicConfig = parsePublicDashboardConfig(env);
-  if (env.NODE_ENV === "production" && optionalString(env, "DASHBOARD_AUTH_SECRET") !== undefined) {
-    throw new TypeError(
-      "Production must load DASHBOARD_AUTH_SECRET_FILE instead of a direct value",
-    );
+  const fixtureMode = parseBoolean(env, "MONITORING_FIXTURE_MODE", false);
+  const captureFile = optionalString(env, "DASHBOARD_EMAIL_OTP_CAPTURE_FILE");
+  const directSmtpUrl = optionalString(env, "DASHBOARD_SMTP_URL");
+  const smtpUrlFile = optionalString(env, "DASHBOARD_SMTP_URL_FILE");
+  if (env.NODE_ENV === "production") {
+    if (optionalString(env, "DASHBOARD_AUTH_SECRET") !== undefined) {
+      throw new TypeError(
+        "Production must load DASHBOARD_AUTH_SECRET_FILE instead of a direct value",
+      );
+    }
+    if (directSmtpUrl !== undefined) {
+      throw new TypeError("Production must load DASHBOARD_SMTP_URL_FILE instead of a direct value");
+    }
   }
+  if (directSmtpUrl !== undefined && smtpUrlFile !== undefined) {
+    throw new TypeError("DASHBOARD_SMTP_URL and DASHBOARD_SMTP_URL_FILE cannot both be set");
+  }
+  if (captureFile !== undefined) {
+    const origin = new URL(publicConfig.origin);
+    const loopback =
+      origin.hostname === "127.0.0.1" ||
+      origin.hostname === "[::1]" ||
+      origin.hostname === "localhost";
+    if (!fixtureMode || !loopback) {
+      throw new TypeError("DASHBOARD_EMAIL_OTP_CAPTURE_FILE is allowed only for loopback fixtures");
+    }
+    if (directSmtpUrl !== undefined || smtpUrlFile !== undefined) {
+      throw new TypeError("Email OTP capture and SMTP delivery cannot both be configured");
+    }
+  } else if (directSmtpUrl === undefined && smtpUrlFile === undefined) {
+    throw new TypeError("DASHBOARD_SMTP_URL_FILE is required outside an email OTP fixture");
+  }
+  const rawSmtpUrl =
+    directSmtpUrl ??
+    (smtpUrlFile === undefined
+      ? null
+      : readFile(requireAbsolutePath(smtpUrlFile, "DASHBOARD_SMTP_URL_FILE"), "utf8").replace(
+          /\r?\n$/u,
+          "",
+        ));
+  const emailOtpFrom =
+    publicConfig.environment === "staging"
+      ? "monitoring-staging@esmii.app"
+      : "monitoring@esmii.app";
   return {
     ...publicConfig,
     databaseFile: requireAbsolutePath(
       requireString(env, "DASHBOARD_AUTH_DATABASE_FILE"),
       "DASHBOARD_AUTH_DATABASE_FILE",
     ),
+    emailOtpCaptureFile:
+      captureFile === undefined
+        ? null
+        : requireAbsolutePath(captureFile, "DASHBOARD_EMAIL_OTP_CAPTURE_FILE"),
+    emailOtpFrom,
     secret: readSecret(env, "DASHBOARD_AUTH_SECRET", "DASHBOARD_AUTH_SECRET_FILE", readFile),
+    smtpUrl: rawSmtpUrl === null ? null : parseDashboardSmtpUrl(rawSmtpUrl, emailOtpFrom),
   };
 }
 

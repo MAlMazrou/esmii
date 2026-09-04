@@ -76,13 +76,15 @@ services:
     secrets:
       - source: production_dashboard_auth_secret
         target: dashboard_auth_secret
+      - source: production_dashboard_smtp_url
+        target: dashboard_smtp_url
     volumes:
       - production-dashboard-secrets:/run/dashboard-secrets
     command:
       - node
       - -e
       - >-
-        const fs=require('node:fs');process.umask(0o027);const source='/run/secrets/dashboard_auth_secret';const destination='/run/dashboard-secrets/dashboard_auth_secret';const temporary=destination+'.'+process.pid+'.tmp';const secret=fs.readFileSync(source);if(secret.length<32||secret.length>4096)throw new Error('dashboard auth secret has an invalid length');const handle=fs.openSync(temporary,'wx',0o440);try{fs.writeFileSync(handle,secret);fs.fsyncSync(handle);}finally{fs.closeSync(handle);}fs.renameSync(temporary,destination);fs.chmodSync(destination,0o440);const result=fs.statSync(destination);if(result.gid!==10003||(result.mode&0o777)!==0o440)throw new Error('dashboard auth secret handoff has unsafe ownership or mode');
+        const fs=require('node:fs');process.umask(0o027);for(const name of ['dashboard_auth_secret','dashboard_smtp_url']){const source='/run/secrets/'+name;const destination='/run/dashboard-secrets/'+name;const temporary=destination+'.'+process.pid+'.tmp';const secret=fs.readFileSync(source);if(secret.length<32||secret.length>4096)throw new Error('dashboard secret has an invalid length');const handle=fs.openSync(temporary,'wx',0o440);try{fs.writeFileSync(handle,secret);fs.fsyncSync(handle);}finally{fs.closeSync(handle);}fs.renameSync(temporary,destination);fs.chmodSync(destination,0o440);const result=fs.statSync(destination);if(result.gid!==10003||(result.mode&0o777)!==0o440)throw new Error('dashboard secret handoff has unsafe ownership or mode');}
 
   production-dashboard:
     <<: *dashboard-common
@@ -96,14 +98,17 @@ services:
       DASHBOARD_PROMETHEUS_TIMEOUT_MS: "10000"
       DASHBOARD_AUTH_DATABASE_FILE: /var/lib/esmii-dashboard/auth.sqlite
       DASHBOARD_AUTH_SECRET_FILE: /run/secrets/dashboard_auth_secret
+      DASHBOARD_SMTP_URL_FILE: /run/secrets/dashboard_smtp_url
       DASHBOARD_LOG_FILE: /var/lib/esmii-dashboard/logs/services.ndjson
       DASHBOARD_LOG_MAX_BYTES: "20971520"
+      NODE_EXTRA_CA_CERTS: /run/mail-ca/mail.esmii.app.pem
       HOST: 0.0.0.0
       PORT: "3000"
     volumes:
       - /var/lib/esmii/monitoring/production/auth:/var/lib/esmii-dashboard
       - /var/lib/esmii/monitoring/production/logs:/var/lib/esmii-dashboard/logs:ro
       - production-dashboard-secrets:/run/secrets:ro
+      - /srv/myapp/production/stalwart/config/tls/fullchain.pem:/run/mail-ca/mail.esmii.app.pem:ro
     expose:
       - "3000"
     networks:
@@ -111,6 +116,7 @@ services:
         ipv4_address: 172.30.41.2
       production-monitoring-data:
         ipv4_address: 172.30.41.10
+      production-mail-submit:
     depends_on:
       production-dashboard-secret-init:
         condition: service_completed_successfully
@@ -161,3 +167,5 @@ volumes:
 secrets:
   production_dashboard_auth_secret:
     file: /etc/esmii/monitoring/production/dashboard-auth-secret
+  production_dashboard_smtp_url:
+    file: /etc/esmii/monitoring/production/dashboard-smtp-url

@@ -1,15 +1,22 @@
 import { betterAuth, type Auth, type BetterAuthOptions } from "better-auth";
-import { twoFactor } from "better-auth/plugins";
+import { emailOTP } from "better-auth/plugins/email-otp";
 
 import { parseDashboardAuthConfig, type DashboardAuthConfig } from "../config/server.ts";
 import {
   createOperatorRateLimitStorage,
+  isOperatorEmailOtpSessionVerified,
+  markOperatorEmailOtpSessionVerified,
   openOperatorDatabase,
   readOperatorSecurityState,
   writeOperatorAudit,
   writeOperatorSecurityState,
   type OperatorDatabase,
 } from "./database.ts";
+import {
+  createOperatorEmailOtpSender,
+  OPERATOR_EMAIL_OTP_LENGTH,
+  OPERATOR_EMAIL_OTP_SECONDS,
+} from "./email-otp.ts";
 
 export const OPERATOR_AUTH_BASE_PATH = "/api/operator-auth";
 export const OPERATOR_SESSION_SECONDS = 8 * 60 * 60;
@@ -52,21 +59,24 @@ export async function readBoundedOperatorAuthBody(request: Request): Promise<Uin
   return body;
 }
 
-export function normalizeOperatorTotpBody(body: Uint8Array | null): Uint8Array {
+export function normalizeOperatorEmailOtpVerificationBody(
+  body: Uint8Array | null,
+  email: string,
+): Uint8Array {
   if (body !== null) {
     try {
       const parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body)) as unknown;
       if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
         const code = (parsed as { readonly code?: unknown }).code;
         if (typeof code === "string" && /^\d{6}$/u.test(code)) {
-          return textEncoder.encode(JSON.stringify({ code, trustDevice: false }));
+          return textEncoder.encode(JSON.stringify({ email, otp: code }));
         }
       }
     } catch {
       // A bounded invalid payload is deliberately forwarded through Better Auth's limiter.
     }
   }
-  return textEncoder.encode(JSON.stringify({ code: "", trustDevice: false }));
+  return textEncoder.encode(JSON.stringify({ email, otp: "" }));
 }
 
 export function normalizeOperatorSignInBody(body: Uint8Array | null): Uint8Array {
@@ -168,24 +178,22 @@ export function buildOperatorAuthOptions(
       requireEmailVerification: false,
     },
     plugins: [
-      twoFactor({
-        accountLockout: {
-          durationSeconds: 15 * 60,
-          enabled: true,
-          maxFailedAttempts: 5,
-        },
-        allowPasswordless: false,
-        issuer: `Esmii ${config.environment} monitoring`,
-        skipVerificationOnEnable: false,
-        trustDeviceMaxAge: 1,
-        twoFactorCookieMaxAge: 10 * 60,
+      emailOTP({
+        allowedAttempts: 5,
+        disableSignUp: true,
+        expiresIn: OPERATOR_EMAIL_OTP_SECONDS,
+        otpLength: OPERATOR_EMAIL_OTP_LENGTH,
+        rateLimit: { max: 5, window: 15 * 60 },
+        sendVerificationOTP: createOperatorEmailOtpSender(config),
+        storeOTP: "hashed",
       }),
     ],
     rateLimit: {
       customStorage: createOperatorRateLimitStorage(database),
       customRules: {
         "/sign-in/email": { max: 5, window: 15 * 60 },
-        "/two-factor/verify-totp": { max: 5, window: 15 * 60 },
+        "/email-otp/send-verification-otp": { max: 5, window: 15 * 60 },
+        "/email-otp/verify-email": { max: 5, window: 15 * 60 },
       },
       enabled: true,
       max: 20,
@@ -240,9 +248,10 @@ export function resetOperatorAuthRealmForTests(): void {
 const PUBLIC_AUTH_REQUESTS = new Set([
   "GET /bootstrap-status",
   "POST /change-password",
+  "POST /email-otp/send-verification-otp",
+  "POST /email-otp/verify-email",
   "POST /sign-in/email",
   "POST /sign-out",
-  "POST /two-factor/verify-totp",
 ]);
 
 export function isPublicOperatorAuthRequestAllowed(method: string, pathname: string): boolean {
@@ -254,9 +263,10 @@ export function isPublicOperatorAuthRequestAllowed(method: string, pathname: str
 
 const TOKEN_FREE_AUTH_SUCCESS = {
   "POST /change-password": { passwordChanged: true },
-  "POST /sign-in/email": { twoFactorRequired: true },
+  "POST /email-otp/send-verification-otp": { emailOtpSent: true },
+  "POST /email-otp/verify-email": { authenticated: true },
+  "POST /sign-in/email": { emailOtpRequired: true },
   "POST /sign-out": { signedOut: true },
-  "POST /two-factor/verify-totp": { authenticated: true },
 } as const;
 
 type TokenFreeAuthAction = keyof typeof TOKEN_FREE_AUTH_SUCCESS;
@@ -291,9 +301,28 @@ export function projectGenericAuthFailure(response: Response, requestId: string)
     headers.set("retry-after", rawRetryAfter);
   }
   return Response.json(
-    { error: { code: "AUTHENTICATION_FAILED", message: "Authentication failed", requestId } },
-    { headers, status: response.status === 429 ? 429 : 401 },
+    {
+      error: {
+        code: response.status >= 500 ? "AUTH_UNAVAILABLE" : "AUTHENTICATION_FAILED",
+        message:
+          response.status >= 500
+            ? "Authentication is temporarily unavailable"
+            : "Authentication failed",
+        requestId,
+      },
+    },
+    { headers, status: response.status === 429 ? 429 : response.status >= 500 ? 503 : 401 },
   );
+}
+
+function emailOtpProofIsValid(
+  database: OperatorDatabase,
+  session: { readonly session: { readonly id: string }; readonly user: { readonly id: string } },
+): boolean {
+  return isOperatorEmailOtpSessionVerified(database, {
+    sessionId: session.session.id,
+    userId: session.user.id,
+  });
 }
 
 export async function handleOperatorAuthRequest(request: Request): Promise<Response> {
@@ -308,74 +337,100 @@ export async function handleOperatorAuthRequest(request: Request): Promise<Respo
   const action = `${request.method.toUpperCase()} ${url.pathname.slice(OPERATOR_AUTH_BASE_PATH.length)}`;
   let realm: OperatorAuthRealm | null = null;
   try {
+    const boundedBody =
+      request.method.toUpperCase() === "POST" ? await readBoundedOperatorAuthBody(request) : null;
+    realm = getOperatorAuthRealm();
+    const needsPasswordSession =
+      action === "GET /bootstrap-status" ||
+      action === "POST /change-password" ||
+      action === "POST /email-otp/send-verification-otp" ||
+      action === "POST /email-otp/verify-email";
+    const passwordSession = needsPasswordSession
+      ? await realm.auth.api.getSession({ headers: request.headers })
+      : null;
+    if (needsPasswordSession && passwordSession === null) {
+      return projectGenericAuthFailure(new Response(null, { status: 401 }), requestId);
+    }
+    const requiresEmailOtpProof =
+      action === "GET /bootstrap-status" || action === "POST /change-password";
+    if (
+      requiresEmailOtpProof &&
+      passwordSession !== null &&
+      !emailOtpProofIsValid(realm.database, passwordSession)
+    ) {
+      return projectGenericAuthFailure(new Response(null, { status: 401 }), requestId);
+    }
+    if (
+      passwordSession !== null &&
+      (action === "POST /email-otp/send-verification-otp" ||
+        action === "POST /email-otp/verify-email")
+    ) {
+      const limiter = createOperatorRateLimitStorage(realm.database);
+      const rule =
+        action === "POST /email-otp/send-verification-otp"
+          ? { max: 3, window: 15 * 60 }
+          : { max: 5, window: 15 * 60 };
+      const limit = await limiter.consume(`${action}:${passwordSession.user.id}`, rule);
+      if (!limit.allowed) {
+        const headers = new Headers();
+        if (limit.retryAfter !== null) {
+          headers.set("x-retry-after", String(limit.retryAfter));
+        }
+        return projectGenericAuthFailure(new Response(null, { headers, status: 429 }), requestId);
+      }
+    }
     let forwardedRequest = request;
     if (request.method.toUpperCase() === "POST") {
-      const boundedBody = await readBoundedOperatorAuthBody(request);
       const safeBody =
-        action === "POST /two-factor/verify-totp"
-          ? normalizeOperatorTotpBody(boundedBody)
-          : action === "POST /sign-in/email"
-            ? normalizeOperatorSignInBody(boundedBody)
-            : action === "POST /change-password"
-              ? normalizeOperatorPasswordChangeBody(boundedBody)
-              : (boundedBody ?? textEncoder.encode("{}"));
+        action === "POST /email-otp/send-verification-otp" && passwordSession !== null
+          ? textEncoder.encode(
+              JSON.stringify({
+                email: passwordSession.user.email,
+                type: "email-verification",
+              }),
+            )
+          : action === "POST /email-otp/verify-email" && passwordSession !== null
+            ? normalizeOperatorEmailOtpVerificationBody(boundedBody, passwordSession.user.email)
+            : action === "POST /sign-in/email"
+              ? normalizeOperatorSignInBody(boundedBody)
+              : action === "POST /change-password"
+                ? normalizeOperatorPasswordChangeBody(boundedBody)
+                : (boundedBody ?? textEncoder.encode("{}"));
       forwardedRequest = rebuildAuthRequest(request, safeBody);
     }
-    realm = getOperatorAuthRealm();
     if (action === "GET /bootstrap-status") {
-      const session = await realm.auth.api.getSession({ headers: request.headers });
-      if (session === null) {
-        return Response.json(
-          { error: { code: "UNAUTHENTICATED", message: "Authentication required", requestId } },
-          { headers: { "cache-control": "no-store" }, status: 401 },
-        );
-      }
-      const state = readOperatorSecurityState(realm.database, session.user.id);
+      if (passwordSession === null) throw new Error("Missing authenticated operator session");
+      const state = readOperatorSecurityState(realm.database, passwordSession.user.id);
       return Response.json(
         {
+          emailOtpVerified: true,
           passwordChangeRequired: state?.passwordChanged !== true,
-          totpEnrollmentVerified: state?.totpEnrollmentVerified === true,
         },
         { headers: { "cache-control": "no-store" }, status: 200 },
       );
     }
 
-    const preChangeSession =
-      action === "POST /change-password"
-        ? await realm.auth.api.getSession({ headers: forwardedRequest.headers })
-        : null;
     const response = await realm.auth.handler(forwardedRequest);
-    let outcome = response.ok ? "success" : `rejected_${response.status}`;
-    if (action === "POST /sign-in/email" && response.ok) {
-      const payload = (await response
-        .clone()
-        .json()
-        .catch(() => null)) as { readonly twoFactorRedirect?: unknown } | null;
-      if (payload?.twoFactorRedirect !== true) {
-        outcome = "totp_not_enrolled";
-        writeOperatorAudit(realm.database, { action, outcome, requestId });
-        return Response.json(
-          {
-            error: {
-              code: "TOTP_REQUIRED",
-              message: "This operator account is not fully provisioned",
-              requestId,
-            },
-          },
-          { headers: { "cache-control": "no-store" }, status: 403 },
-        );
-      }
+    const outcome = response.ok ? "success" : `rejected_${response.status}`;
+    if (action === "POST /email-otp/verify-email" && response.ok && passwordSession !== null) {
+      markOperatorEmailOtpSessionVerified(realm.database, {
+        expiresAt: new Date(passwordSession.session.expiresAt),
+        sessionId: passwordSession.session.id,
+        userId: passwordSession.user.id,
+      });
     }
-    if (action === "POST /change-password" && response.ok && preChangeSession !== null) {
-      writeOperatorSecurityState(realm.database, preChangeSession.user.id, {
+    if (action === "POST /change-password" && response.ok && passwordSession !== null) {
+      writeOperatorSecurityState(realm.database, passwordSession.user.id, {
         passwordChanged: true,
       });
     }
     if (
       !response.ok &&
       (action === "POST /change-password" ||
+        action === "POST /email-otp/send-verification-otp" ||
+        action === "POST /email-otp/verify-email" ||
         action === "POST /sign-in/email" ||
-        action === "POST /two-factor/verify-totp")
+        action === "POST /sign-out")
     ) {
       writeOperatorAudit(realm.database, { action, outcome, requestId });
       return projectGenericAuthFailure(response, requestId);
@@ -416,12 +471,10 @@ export async function handleOperatorAuthRequest(request: Request): Promise<Respo
 export async function requireOperatorSession(
   headers: Headers,
 ): Promise<{ readonly id: string; readonly email: string } | null> {
-  const { auth } = getOperatorAuthRealm();
+  const { auth, database } = getOperatorAuthRealm();
   const session = await auth.api.getSession({ headers });
   if (session === null) return null;
-  const user = session.user as typeof session.user & { readonly twoFactorEnabled?: boolean };
-  if (user.twoFactorEnabled !== true) return null;
-  const state = readOperatorSecurityState(getOperatorAuthRealm().database, user.id);
-  if (state?.passwordChanged !== true || state.totpEnrollmentVerified !== true) return null;
-  return { email: user.email, id: user.id };
+  const state = readOperatorSecurityState(database, session.user.id);
+  if (state?.passwordChanged !== true || !emailOtpProofIsValid(database, session)) return null;
+  return { email: session.user.email, id: session.user.id };
 }

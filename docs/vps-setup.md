@@ -55,7 +55,7 @@ Before a Prompt 07 monitoring host action, additionally record:
 
 - a fresh read-only inventory of listeners, Docker networks/containers, Caddy routes/certificates, systemd units/timers, memory/disk/inodes, and current Cloudflare Worker/DNS routes for both dashboard hostnames;
 - the exact pinned Prometheus/node_exporter artifacts and checksums plus the immutable dashboard image digest/source/revision/version labels;
-- separate root-only staging/production dashboard password, TOTP, session, recovery, SQLite/audit, and cookie-state file references without recording their values;
+- separate root-only staging/production dashboard password, dedicated SMTP sender, session, recovery, SQLite/audit, and cookie-state file references without recording their values;
 - the captured pre-change Worker route/DNS state and tested restore procedure for each hostname;
 - the staging 24-hour soak start/end and objective acceptance evidence; and
 - an independently owned off-host outage-monitor destination, if that later gate is being proposed.
@@ -440,7 +440,7 @@ Before Prompt 07 staging monitoring soak acceptance:
 
 - the fresh host/Cloudflare audit and exact rollback state are recorded;
 - only private monitoring ports/listeners exist, the four monitoring subnets render exactly, and no dashboard/Prometheus/Caddy process has the Docker socket;
-- staging operator password plus TOTP, eight-hour session, host-only cookie, CSRF/origin, rate-limit, revocation, and anonymous/password-only/wrong-host denial tests pass without exposing secrets;
+- staging operator password plus a five-minute single-use email OTP, dedicated environment sender, certificate-verified private Stalwart submission, eight-hour session, host-only cookie, CSRF/origin, rate-limit, revocation, and anonymous/password-only/wrong-host denial tests pass without exposing secrets;
 - Prometheus retention, snapshot age/count/size/message bounds, source allowlists, redaction sentinels, metric relabeling, and stale/degraded states pass;
 - total monitoring ceilings equal 1,088 MiB and a continuous 24-hour soak under representative application/mail load shows no sustained RAM above 70%, sustained swap, OOM, restart loop, disk/inode breach, or unacceptable application latency; and
 - staging rollback restores its preceding Worker route and removes only staging monitoring state/routes, leaving customer application/data/mail and production unchanged.

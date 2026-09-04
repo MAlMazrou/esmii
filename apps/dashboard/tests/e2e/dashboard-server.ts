@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
-import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { getMigrations } from "better-auth/db/migration";
@@ -24,30 +24,12 @@ interface FixtureMetadata {
   readonly authSecretFile: string;
   readonly databaseFile: string;
   readonly email: string;
+  readonly emailOtpCodeFile: string;
   readonly environment: MonitoringEnvironment;
   readonly origin: string;
   readonly password: string;
   readonly peerOrigin: string;
   readonly themeFixture: "contract-test" | null;
-  readonly totpCodeFile: string;
-}
-
-function decodeBase32Secret(value: string): string {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  const bytes: number[] = [];
-  let buffer = 0;
-  let bits = 0;
-  for (const character of value.replace(/=+$/u, "")) {
-    const digit = alphabet.indexOf(character.toUpperCase());
-    if (digit < 0) throw new Error("Synthetic TOTP URI contains invalid base32");
-    buffer = (buffer << 5) | digit;
-    bits += 5;
-    if (bits >= 8) {
-      bits -= 8;
-      bytes.push((buffer >>> bits) & 0xff);
-    }
-  }
-  return new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(bytes));
 }
 
 const SERVER_TARGETS = {
@@ -134,9 +116,7 @@ async function provisionSyntheticOperator(options: {
   readonly database: OperatorDatabase;
   readonly email: string;
   readonly password: string;
-}): Promise<{
-  readonly generateTotpCode: () => Promise<string>;
-}> {
+}): Promise<void> {
   const realm = createOperatorAuthRealm({
     config: options.config,
     database: options.database,
@@ -148,56 +128,14 @@ async function provisionSyntheticOperator(options: {
     name: "Synthetic dashboard operator",
     password: options.password,
   });
-  const enrollment = (await callAuth(
-    options.config,
-    realm.auth.handler,
-    jar,
-    "/two-factor/enable",
-    { method: "totp", password: options.password },
-  )) as { readonly totpURI?: unknown };
-  if (typeof enrollment.totpURI !== "string") {
-    throw new Error("Synthetic operator provisioning did not return a TOTP URI");
-  }
-  const totpUri = new URL(enrollment.totpURI);
-  const totpSecret = totpUri.searchParams.get("secret");
-  if (totpSecret === null || totpSecret.length === 0) {
-    throw new Error("Synthetic operator provisioning did not return a TOTP secret");
-  }
-  const totpApi = realm.auth.api as typeof realm.auth.api & {
-    readonly generateTOTP: (input: {
-      readonly body: { readonly secret: string };
-    }) => Promise<{ readonly code: string }>;
-  };
-  const generateTotpCode = async (): Promise<string> => {
-    const generated = await totpApi.generateTOTP({
-      body: { secret: decodeBase32Secret(totpSecret) },
-    });
-    if (!/^\d{6}$/u.test(generated.code)) {
-      throw new Error("Better Auth returned an invalid synthetic TOTP code");
-    }
-    return generated.code;
-  };
-  await callAuth(options.config, realm.auth.handler, jar, "/two-factor/verify-totp", {
-    code: await generateTotpCode(),
-    trustDevice: false,
-  });
   const user = options.database
     .prepare('SELECT id FROM "user" WHERE lower(email) = ?')
     .get(options.email) as { readonly id: string } | undefined;
   if (user === undefined) throw new Error("Synthetic operator was not found after provisioning");
   writeOperatorSecurityState(options.database, user.id, {
     passwordChanged: true,
-    totpEnrollmentVerified: true,
   });
   revokeOperatorSessions(options.database, user.id);
-  return { generateTotpCode };
-}
-
-function writeAtomicPrivateFile(path: string, value: string): void {
-  const temporary = `${path}.next`;
-  writeFileSync(temporary, value, { mode: 0o600 });
-  chmodSync(temporary, 0o600);
-  renameSync(temporary, path);
 }
 
 function stopChild(child: ChildProcess): void {
@@ -216,7 +154,7 @@ const runtimeDirectory = resolve(runtimeRoot, target.environment);
 const databaseFile = resolve(runtimeDirectory, "auth.sqlite");
 const authSecretFile = resolve(runtimeDirectory, "auth-secret");
 const metadataFile = resolve(runtimeDirectory, "fixture.json");
-const totpCodeFile = resolve(runtimeDirectory, "totp-code");
+const emailOtpCodeFile = resolve(runtimeDirectory, "email-otp-code");
 const origin = `http://127.0.0.1:${target.port}`;
 const peerOrigin = `http://127.0.0.1:${target.peerPort}`;
 const email = `operator-${target.environment}@example.invalid`;
@@ -228,15 +166,19 @@ writeFileSync(authSecretFile, `${randomBytes(48).toString("base64url")}\n`, { mo
 
 const config: DashboardAuthConfig = {
   databaseFile,
+  emailOtpCaptureFile: emailOtpCodeFile,
+  emailOtpFrom:
+    target.environment === "staging" ? "monitoring-staging@esmii.app" : "monitoring@esmii.app",
   environment: target.environment,
   origin,
   peerOrigin,
   secret: readFileSync(authSecretFile, "utf8").trim(),
+  smtpUrl: null,
   themeFixture: target.themeFixture,
 };
 const database = openOperatorDatabase(databaseFile);
 await migrate(config, database);
-const { generateTotpCode } = await provisionSyntheticOperator({
+await provisionSyntheticOperator({
   config,
   database,
   email,
@@ -247,24 +189,14 @@ const metadata: FixtureMetadata = {
   authSecretFile,
   databaseFile,
   email,
+  emailOtpCodeFile,
   environment: target.environment,
   origin,
   password,
   peerOrigin,
   themeFixture: target.themeFixture,
-  totpCodeFile,
 };
 writeFileSync(metadataFile, `${JSON.stringify(metadata)}\n`, { mode: 0o600 });
-writeAtomicPrivateFile(totpCodeFile, `${await generateTotpCode()}\n`);
-
-let refreshFailed = false;
-const totpRefresh = setInterval(() => {
-  void generateTotpCode()
-    .then((code) => writeAtomicPrivateFile(totpCodeFile, `${code}\n`))
-    .catch(() => {
-      refreshFailed = true;
-    });
-}, 500);
 
 const standaloneRoot = resolve(dashboardRoot, ".next/standalone/apps/dashboard");
 const standaloneServer = resolve(standaloneRoot, "server.js");
@@ -274,6 +206,7 @@ const server = spawn(process.execPath, [standaloneServer], {
     ...process.env,
     DASHBOARD_AUTH_DATABASE_FILE: databaseFile,
     DASHBOARD_AUTH_SECRET_FILE: authSecretFile,
+    DASHBOARD_EMAIL_OTP_CAPTURE_FILE: emailOtpCodeFile,
     DASHBOARD_ENVIRONMENT: target.environment,
     DASHBOARD_ORIGIN: origin,
     DASHBOARD_PEER_ORIGIN: peerOrigin,
@@ -296,11 +229,10 @@ const [exitCode, exitSignal] = (await once(server, "exit")) as [
   number | null,
   NodeJS.Signals | null,
 ];
-clearInterval(totpRefresh);
 database.close();
 rmSync(runtimeDirectory, { force: true, recursive: true });
 
-if (refreshFailed || exitCode !== 0) {
+if (exitCode !== 0) {
   throw new Error(
     `Dashboard ${target.environment} fixture stopped unexpectedly (${exitSignal ?? exitCode ?? "unknown"})`,
   );

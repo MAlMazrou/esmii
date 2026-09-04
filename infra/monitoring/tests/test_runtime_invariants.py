@@ -95,6 +95,10 @@ class RuntimeInvariantTests(unittest.TestCase):
         self.assertIn("DASHBOARD_PEER_ORIGIN: https://staging-dashboard.esmii.app", production)
         self.assertIn("file: /etc/esmii/monitoring/staging/dashboard-auth-secret", staging)
         self.assertIn("file: /etc/esmii/monitoring/production/dashboard-auth-secret", production)
+        self.assertIn("file: /etc/esmii/monitoring/staging/dashboard-smtp-url", staging)
+        self.assertIn("file: /etc/esmii/monitoring/production/dashboard-smtp-url", production)
+        self.assertIn("DASHBOARD_SMTP_URL_FILE: /run/secrets/dashboard_smtp_url", staging)
+        self.assertIn("DASHBOARD_SMTP_URL_FILE: /run/secrets/dashboard_smtp_url", production)
         self.assertNotIn("/srv/myapp/monitoring", staging + production)
         self.assertNotIn("/etc/myapp/secrets/monitoring", staging + production)
 
@@ -114,7 +118,11 @@ class RuntimeInvariantTests(unittest.TestCase):
                 f"{environment}-dashboard-secrets:/run/dashboard-secrets",
                 init,
             )
+            self.assertIn(f"source: {environment}_dashboard_auth_secret", init)
+            self.assertIn(f"source: {environment}_dashboard_smtp_url", init)
+            self.assertIn("['dashboard_auth_secret','dashboard_smtp_url']", init)
             self.assertNotIn(f"source: {environment}_dashboard_auth_secret", dashboard)
+            self.assertNotIn(f"source: {environment}_dashboard_smtp_url", dashboard)
             self.assertIn(f"{environment}-dashboard-secrets:/run/secrets:ro", dashboard)
             self.assertIn("condition: service_completed_successfully", dashboard)
             self.assertIn(
@@ -190,6 +198,18 @@ class RuntimeInvariantTests(unittest.TestCase):
         self.assertNotIn("staging-monitoring", production)
         self.assertNotIn("/var/lib/esmii/monitoring/production", staging)
         self.assertNotIn("/var/lib/esmii/monitoring/staging", production)
+        self.assertIn("staging-mail-submit:", staging)
+        self.assertNotIn("production-mail-submit:", staging)
+        self.assertIn("production-mail-submit:", production)
+        self.assertNotIn("staging-mail-submit:", production)
+        self.assertIn(
+            "/srv/myapp/staging/mail-ca/mail.esmii.app.pem:/run/mail-ca/mail.esmii.app.pem:ro",
+            staging,
+        )
+        self.assertIn(
+            "/srv/myapp/production/stalwart/config/tls/fullchain.pem:/run/mail-ca/mail.esmii.app.pem:ro",
+            production,
+        )
 
     def test_host_firewall_allows_fixed_project_same_bridge_monitoring_traffic(self):
         firewall = read("infra/ansible/roles/firewall/files/esmii-docker-firewall.sh")

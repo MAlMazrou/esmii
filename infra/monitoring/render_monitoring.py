@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Mapping, Sequence
@@ -199,16 +200,41 @@ def validate_local_images(
 
 
 def validate_host_state(environment: str) -> None:
-    secret = Path(f"/etc/esmii/monitoring/{environment}/dashboard-auth-secret")
-    if secret.is_symlink() or not secret.is_file():
-        raise ValueError("environment dashboard auth secret is absent or unsafe")
-    secret_stat = secret.stat()
-    if not stat.S_ISREG(secret_stat.st_mode) or stat.S_IMODE(secret_stat.st_mode) != 0o600:
-        raise ValueError("environment dashboard auth secret must be a mode-0600 regular file")
-    if secret_stat.st_uid != 0 or secret_stat.st_gid != 0:
-        raise ValueError("environment dashboard auth secret must be owned by root:root")
-    if secret_stat.st_size < 32 or secret_stat.st_size > 4096:
-        raise ValueError("environment dashboard auth secret has an invalid size")
+    secret_root = Path(f"/etc/esmii/monitoring/{environment}")
+    for name in ("dashboard-auth-secret", "dashboard-smtp-url"):
+        secret = secret_root / name
+        if secret.is_symlink() or not secret.is_file():
+            raise ValueError(f"environment {name} is absent or unsafe")
+        secret_stat = secret.stat()
+        if not stat.S_ISREG(secret_stat.st_mode) or stat.S_IMODE(secret_stat.st_mode) != 0o600:
+            raise ValueError(f"environment {name} must be a mode-0600 regular file")
+        if secret_stat.st_uid != 0 or secret_stat.st_gid != 0:
+            raise ValueError(f"environment {name} must be owned by root:root")
+        if secret_stat.st_size < 32 or secret_stat.st_size > 4096:
+            raise ValueError(f"environment {name} has an invalid size")
+
+    smtp_url = (secret_root / "dashboard-smtp-url").read_text(encoding="utf-8").strip()
+    parsed_smtp = urllib.parse.urlsplit(smtp_url)
+    expected_smtp_email = (
+        "monitoring-staging@esmii.app"
+        if environment == "staging"
+        else "monitoring@esmii.app"
+    )
+    smtp_password = urllib.parse.unquote(parsed_smtp.password or "")
+    if (
+        parsed_smtp.scheme != "smtp"
+        or parsed_smtp.hostname != "mail.esmii.app"
+        or parsed_smtp.port != 587
+        or urllib.parse.unquote(parsed_smtp.username or "") != expected_smtp_email
+        or len(smtp_password) < 32
+        or len(smtp_password) > 512
+        or any(ord(character) < 33 or ord(character) > 126 for character in smtp_password)
+        or parsed_smtp.path not in ("", "/")
+        or parsed_smtp.fragment
+        or urllib.parse.parse_qsl(parsed_smtp.query, keep_blank_values=True)
+        != [("requireTLS", "true")]
+    ):
+        raise ValueError("environment dashboard SMTP URL violates the private STARTTLS contract")
 
     expected_directories = {
         Path(f"/var/lib/esmii/monitoring/{environment}/auth"): (0o700, 10003, 10003),
@@ -365,6 +391,10 @@ def render_runtime(
     other_environment = "production" if environment == "staging" else "staging"
     if f"/var/lib/esmii/monitoring/{other_environment}/" in compose:
         raise ValueError("rendered monitoring Compose crosses environment state")
+    if f"{environment}-mail-submit" not in compose:
+        raise ValueError("rendered monitoring Compose lacks its private mail-submit network")
+    if f"{other_environment}-mail-submit" in compose:
+        raise ValueError("rendered monitoring Compose crosses environment mail-submit networks")
 
     file_hashes = {
         relative: hashlib.sha256(content.encode("utf-8")).hexdigest()

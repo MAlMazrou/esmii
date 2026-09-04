@@ -83,6 +83,13 @@ class RuntimeRenderingTests(unittest.TestCase):
         self.assertIn("name: esmii-monitoring-staging-dashboard-secret", compose)
         self.assertIn("app.esmii.component: dashboard-secret-handoff", compose)
         self.assertIn("app.esmii.environment: staging", compose)
+        self.assertIn("staging-mail-submit:", compose)
+        self.assertNotIn("production-mail-submit:", compose)
+        self.assertIn(
+            "file: /etc/esmii/monitoring/staging/dashboard-smtp-url",
+            compose,
+        )
+        self.assertIn("DASHBOARD_SMTP_URL_FILE: /run/secrets/dashboard_smtp_url", compose)
         self.assertTrue(staging_rules_exist)
 
     def test_renderer_refuses_in_place_replacement_of_an_immutable_candidate(self):

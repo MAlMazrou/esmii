@@ -43,6 +43,7 @@ PAYLOAD_FILES: dict[str, int] = {
     "infra/monitoring/prometheus/production/prometheus.yml": 0o644,
     "infra/monitoring/prometheus/rules/esmii.rules.yml": 0o644,
     "infra/monitoring/prometheus/staging/prometheus.yml": 0o644,
+    "infra/monitoring/provision_dashboard_mail.py": 0o755,
     "infra/monitoring/render_monitoring.py": 0o755,
     "infra/monitoring/rollback-host-collectors.sh": 0o755,
     "infra/monitoring/rollback_monitoring_runtime.py": 0o755,

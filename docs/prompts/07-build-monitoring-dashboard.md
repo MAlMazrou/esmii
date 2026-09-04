@@ -23,10 +23,11 @@ This prompt is multi-gated. Repository implementation and local validation do no
 - No cAdvisor. A fixed root-owned metrics collector reads only the allowlisted Docker/systemd facts needed for service state, health, start time, restart count, deployment state, and jobs, then atomically writes numeric Prometheus textfiles. It accepts no browser/dashboard parameters and exposes no socket.
 - A separate fixed root-owned log collector reads only allowlisted services, parses known formats, drops fields not on the safe schema, redacts before persistence, and atomically writes one environment-specific warning/error snapshot. The dashboard never receives the Docker socket and never shells out.
 - The production and staging dashboard instances call only their own Prometheus `/api/v1/query` and `/api/v1/query_range` endpoints through server-owned fixed query templates. No raw PromQL endpoint or arbitrary query string is exposed to the browser.
-- One dedicated Better Auth operator realm per hostname using supported password hashing plus TOTP. These realms are not customer accounts and have no organization membership, application session, signup, reset, magic-link, social-login, customer database, or customer API access.
-- Separate root-only password/TOTP/session secrets, host-only cookies, operator records, SQLite auth/audit databases, and revocation state for staging and production. A successful password check alone exposes no monitoring data; TOTP is required for every new session.
-- Eight-hour maximum operator sessions, Secure/HttpOnly host-only cookies, `SameSite=Strict`, exact-origin/CSRF enforcement, generic failures, bounded login/TOTP rate limits, audit of success/failure/logout/revocation, and no secret or TOTP value in logs.
-- Better Auth operations live only under `/api/operator-auth/*`; provisioning, recovery, password/TOTP reset, and revocation use root-only local CLI flows with protected-file or TTY input, never secret-bearing command-line arguments.
+- One dedicated Better Auth operator realm per hostname using supported password hashing plus email OTP. These realms are not customer accounts and have no organization membership, application session, signup, reset, magic-link, social-login, customer database, or customer API access.
+- Separate root-only password/email-OTP-sender/session secrets, host-only cookies, operator records, SQLite auth/audit databases, and revocation state for staging and production. A successful password check alone exposes no monitoring data; a single-use email OTP is required for every new session.
+- Each dashboard uses one dedicated environment-specific Stalwart submission identity through only its matching internal `mail-submit` network. The recipient is taken from the password-authenticated session, STARTTLS certificate verification is mandatory, and staging/production never share SMTP credentials.
+- Eight-hour maximum operator sessions, five-minute six-digit OTPs, Secure/HttpOnly host-only cookies, `SameSite=Strict`, exact-origin/CSRF enforcement, generic failures, bounded login/OTP-send/OTP-verification rate limits, audit of success/failure/logout/revocation, and no secret or OTP value in logs.
+- Better Auth operations live only under `/api/operator-auth/*`; provisioning, email retargeting, recovery, password reset, and revocation use root-only local CLI flows with protected-file or TTY input, never secret-bearing command-line arguments.
 - Caddy remains the only public HTTP entry point and, after each hostname's separate gate, obtains and auto-renews that hostname's Let's Encrypt certificate while redirecting HTTP to HTTPS. Dashboard port `3000`, Prometheus `9090`, node_exporter `9100`, collector outputs, and SQLite files remain private.
 
 ## Network and resource contract
@@ -58,7 +59,7 @@ The collectors do not run concurrently with one another. The combined existing-s
 
 ## Dashboard behavior
 
-After authentication and TOTP, the fixed-environment application provides:
+After password and email-OTP authentication, the fixed-environment application provides:
 
 - `/overview` — CPU, RAM, disk, disk I/O, network, uptime, load, data freshness, and environment identity;
 - `/services` — allowlisted service state, health, CPU/memory, current and rolling restart count, and last start/restart time;
@@ -68,7 +69,7 @@ After authentication and TOTP, the fixed-environment application provides:
 - typed server APIs under `/api/monitoring/{overview,series,services,jobs,logs,application}`; and
 - public `/healthz`, limited to dashboard process liveness/readiness and containing no infrastructure detail.
 
-The login page, the minimum `/api/operator-auth/*` password/TOTP exchange, static assets required to render that flow, and `/healthz` are the only unauthenticated surfaces; none reveals metrics, service names/state, logs, Prometheus result, operator existence, or secret-bearing configuration. Monitoring HTML, RSC/prefetch responses, typed APIs, and caches must all enforce the operator session plus completed TOTP boundary.
+The login page, the minimum `/api/operator-auth/*` password/email-OTP exchange, static assets required to render that flow, and `/healthz` are the only unauthenticated surfaces; none reveals metrics, service names/state, logs, Prometheus result, operator existence, or secret-bearing configuration. Monitoring HTML, RSC/prefetch responses, typed APIs, and caches must all enforce the operator session plus completed email-OTP boundary.
 
 Use these visual-spec references as presentation targets, not as sources of production data, credentials, dates, addresses, or security policy:
 
@@ -82,7 +83,7 @@ Canonical requirements in this prompt and `docs/requirements.md` override any il
 
 - Prometheus keeps at most seven days or 1 GB per environment, whichever is reached first, within a 1.25 GB per-environment disk allowance. It stores infrastructure metrics only and never labels metrics with email, URL/query, cookie, authorization data, message body, database value, token, full command line, or unbounded user-controlled text.
 - The log collector reads only warning/error records from explicitly allowlisted containers/units. It allowlists `timestamp`, normalized `service`, `severity`, sanitized bounded `message`, safe event name, and request/correlation ID; every other field is discarded.
-- Auth/action/invitation URLs, query strings, headers, cookies, IP addresses, emails, bodies, SQL values, SMTP content, OAuth material, TOTP values, stack traces, environment variables, and secrets never enter dashboard snapshots.
+- Auth/action/invitation URLs, query strings, headers, cookies, IP addresses, emails, bodies, SQL values, SMTP content, OAuth material, OTP/TOTP values, stack traces, environment variables, and secrets never enter dashboard snapshots.
 - Each environment snapshot is an atomic bounded replacement containing no more than the most recent 24 hours, 10,000 records, or 20 MiB, whichever limit is reached first; every message is truncated to 4 KiB after redaction. It is not a log archive. Docker's existing 10 MiB × 3 local-log bounds remain authoritative for source retention.
 - The dashboard treats collected text as untrusted plain text, never renders HTML from logs, and never offers arbitrary grep, path, command, unit, container, or PromQL input.
 - Prometheus, collector output, SQLite auth/audit state, and dashboard caches are separate per environment and root-owned outside Git. They are operational state, not application backup authority.
@@ -90,7 +91,7 @@ Canonical requirements in this prompt and `docs/requirements.md` override any il
 ## Repository implementation deliverables
 
 - Standalone custom dashboard UI and typed server-side data adapters; no Grafana/Prometheus skin or embedded raw Prometheus UI.
-- Dedicated operator authentication, TOTP, session, audit, provisioning/revocation tooling, negative authorization tests, and separate-environment fixtures.
+- Dedicated operator authentication, email OTP, session, audit, provisioning/retargeting/revocation tooling, negative authorization tests, and separate-environment fixtures.
 - Fixed, allowlisted PromQL descriptors and strict validation of Prometheus response shapes, time ranges, result limits, timeouts, and safe error states.
 - Prometheus scrape/rule configurations, root collector scripts/units, node_exporter configuration, environment-specific Compose/Caddy fragments, isolated networks, volumes, caps, health checks, and no-public-port policy.
 - A single immutable dashboard image in CI with the same version/source/revision labels, vulnerability scan, SBOM, full-SHA publication, and `:dev`/`:main` convenience pointers as the existing application images.
@@ -134,7 +135,7 @@ Repository completion stops before all of these actions:
 
 1. **Fresh read-only audit approval:** inspect current Cloudflare custom-domain/DNS state and live VPS services, listeners, routes, packages, timers, capacity, Docker networks, restart history, certificate state, and monitoring conflicts.
 2. **Staging host-change approval:** install the reviewed node_exporter/collector units, root-owned files/secrets, staging Prometheus/dashboard composition, and Caddy fragment without changing DNS.
-3. **Private staging verification:** use the VPN/loopback path to prove targets, queries, auth/TOTP, redaction, isolation, rollback, and resource limits before public DNS.
+3. **Private staging verification:** use the VPN/loopback path to prove targets, queries, password/email-OTP delivery, redaction, isolation, rollback, and resource limits before public DNS.
 4. **Cloudflare staging-hostname approval:** record the existing `staging-dashboard.esmii.app` Worker custom-domain binding, detach only that binding, create DNS-only VPS A/AAAA records, obtain/verify Caddy's Let's Encrypt certificate and automatic renewal, and retain exact Worker restoration data.
 5. **24-hour staging-soak acceptance:** review resource and application evidence. Failure rolls back monitoring without changing the application runtime.
 6. **Production host-change and secret approval:** create a completely separate production operator realm, secrets, SQLite state, Prometheus/dashboard instance, network, Caddy fragment, and rollback point using the already verified image digest.

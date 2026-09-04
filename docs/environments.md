@@ -31,7 +31,7 @@ As of 31 August 2026, the separately approved mail gate has removed that default
 | User access | developer | exactly two user-selected tester addresses; `noindex` retained | public application; provider availability remains environment-configured |
 | Monitoring hostname | local fixtures only | `staging-dashboard.esmii.app` after its Worker/DNS/TLS gate | `dashboard.esmii.app` after staging soak and its separate DNS/TLS gate |
 | Monitoring data | synthetic fixtures | `staging-prometheus`, staging metric/log snapshot only | `production-prometheus`, production metric/log snapshot only |
-| Monitoring auth | synthetic operator | staging-only Better Auth password+TOTP realm/SQLite/cookie/secrets | production-only Better Auth password+TOTP realm/SQLite/cookie/secrets |
+| Monitoring auth | synthetic operator with captured OTP | staging-only Better Auth password+email-OTP realm/SQLite/cookie/secrets and dedicated Stalwart sender | production-only Better Auth password+email-OTP realm/SQLite/cookie/secrets and dedicated Stalwart sender |
 
 ## 3. Rules that apply everywhere
 
@@ -47,7 +47,7 @@ As of 31 August 2026, the separately approved mail gate has removed that default
 - Workers have no public default route. APIs receive only the egress explicitly required by product behavior.
 - No production data is copied to development or staging.
 - No mutable `latest` tag is a release identity.
-- Monitoring environment identity is fixed server-side. A browser environment control is a link between hostnames, never a data selector; each hostname requires its own operator password+TOTP session.
+- Monitoring environment identity is fixed server-side. A browser environment control is a link between hostnames, never a data selector; each hostname requires its own operator password+email-OTP session.
 - Prometheus, node_exporter, collector outputs, dashboard SQLite files, and monitoring service ports remain private. Caddy exposes only the authenticated dashboard and detail-free `/healthz`.
 
 ## 4. Development
@@ -203,13 +203,13 @@ Before production activation, prove all of the following:
 
 Prompt 07 additionally proves:
 
-- `staging-dashboard`/`staging-prometheus` use only staging monitoring networks, mounts, SQLite state, credentials, cookies, labels, and log snapshots;
-- `production-dashboard`/`production-prometheus` use only production equivalents;
+- `staging-dashboard`/`staging-prometheus` use only staging monitoring networks, mounts, SQLite state, credentials, cookies, labels, and log snapshots; the dashboard alone also joins `staging-mail-submit` with its dedicated monitoring sender credential;
+- `production-dashboard`/`production-prometheus` use only production equivalents; the dashboard alone also joins `production-mail-submit` with a different dedicated monitoring sender credential;
 - the shared node_exporter binds only to `127.0.0.1:9100`; systemd socket proxies listen only at `172.30.40.9:9100` and `172.30.41.9:9100`, with host-public `9100` absent;
 - staging monitoring uses edge `172.30.40.0/29` and internal data `172.30.40.8/29`; production uses edge `172.30.41.0/29` and internal data `172.30.41.8/29`;
-- Caddy joins only the monitoring edge networks, each dashboard joins only its own edge/data pair, and each Prometheus joins only its own data network;
+- Caddy joins only the monitoring edge networks, each dashboard joins only its own edge/data pair plus its matching internal `mail-submit` network, and each Prometheus joins only its own data network;
 - each Prometheus drops the other environment's collector series while retaining clearly labelled shared-host series;
-- neither dashboard, Caddy, nor Prometheus receives the Docker socket, root command access, customer database credentials, or application data/mail/storage networks; and
+- neither dashboard, Caddy, nor Prometheus receives the Docker socket, root command access, customer database credentials, or application data/storage networks; each dashboard's sole mail-network exception is its environment's internal submission path with a dedicated send-only credential; and
 - cross-host cookies, operator credentials, sessions, SQLite files, Prometheus queries, and log snapshots fail closed.
 
 ## 10. Prompt 07 monitoring activation order

@@ -68,7 +68,7 @@ RUN npm uninstall --global npm \
 COPY --from=build --chown=10003:10003 /workspace/apps/dashboard/.next/standalone ./
 COPY --from=build --chown=10003:10003 /workspace/apps/dashboard/.next/static ./apps/dashboard/.next/static
 COPY --from=build --chown=10003:10003 /workspace/apps/dashboard/lib/config ./apps/dashboard/lib/config
-COPY --from=build --chown=10003:10003 /workspace/apps/dashboard/dist/operator-auth.mjs ./apps/dashboard/operator-auth.mjs
+COPY --from=build --chown=10003:10003 /workspace/apps/dashboard/dist/operator-auth.cjs ./apps/dashboard/operator-auth.cjs
 
 USER 10003:10003
 

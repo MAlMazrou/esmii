@@ -38,6 +38,7 @@ describe("Prompt-07 monitoring host payload", () => {
     expect(names.some((path) => path.includes("/tests/"))).toBe(false);
     expect(names).toContain("infra/staging-pull/esmii-staging-pull");
     expect(names).toContain("infra/production-pull/esmii-production-pull");
+    expect(names).toContain("infra/monitoring/provision_dashboard_mail.py");
   });
 
   it("changes identity when the approved source revision changes", async () => {

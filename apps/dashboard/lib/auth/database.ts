@@ -6,6 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 export type OperatorDatabase = DatabaseSync;
 
 export const OPERATOR_AUDIT_MAX_ROWS = 20_000;
+export const OPERATOR_EMAIL_OTP_SESSION_MAX_ROWS = 20_000;
 export const OPERATOR_RATE_LIMIT_MAX_ROWS = 20_000;
 export const OPERATOR_RATE_LIMIT_MAX_WINDOW_SECONDS = 15 * 60;
 const OPERATOR_AUDIT_WAL_PAGES = 256;
@@ -195,6 +196,16 @@ export function openOperatorDatabase(filePath: string): OperatorDatabase {
       totp_enrollment_verified INTEGER NOT NULL DEFAULT 0 CHECK(totp_enrollment_verified IN (0, 1)),
       updated_at TEXT NOT NULL
     ) STRICT;
+    CREATE TABLE IF NOT EXISTS operator_email_otp_session (
+      session_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      verified_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS operator_email_otp_session_expiry_idx
+      ON operator_email_otp_session(expires_at);
+    CREATE INDEX IF NOT EXISTS operator_email_otp_session_user_idx
+      ON operator_email_otp_session(user_id);
   `);
   return database;
 }
@@ -234,7 +245,6 @@ export function writeOperatorAudit(
 
 export interface OperatorSecurityState {
   readonly passwordChanged: boolean;
-  readonly totpEnrollmentVerified: boolean;
 }
 
 export function readOperatorSecurityState(
@@ -243,17 +253,14 @@ export function readOperatorSecurityState(
 ): OperatorSecurityState | null {
   const row = database
     .prepare(
-      `SELECT password_changed AS passwordChanged,
-              totp_enrollment_verified AS totpEnrollmentVerified
+      `SELECT password_changed AS passwordChanged
        FROM operator_security_state WHERE user_id = ?`,
     )
-    .get(userId) as
-    { readonly passwordChanged: number; readonly totpEnrollmentVerified: number } | undefined;
+    .get(userId) as { readonly passwordChanged: number } | undefined;
   return row === undefined
     ? null
     : {
         passwordChanged: row.passwordChanged === 1,
-        totpEnrollmentVerified: row.totpEnrollmentVerified === 1,
       };
 }
 
@@ -264,26 +271,114 @@ export function writeOperatorSecurityState(
 ): void {
   const current = readOperatorSecurityState(database, userId) ?? {
     passwordChanged: false,
-    totpEnrollmentVerified: false,
   };
   database
     .prepare(
       `INSERT INTO operator_security_state(
          user_id, password_changed, totp_enrollment_verified, updated_at
-       ) VALUES (?, ?, ?, ?)
+       ) VALUES (?, ?, 0, ?)
        ON CONFLICT(user_id) DO UPDATE SET
          password_changed = excluded.password_changed,
-         totp_enrollment_verified = excluded.totp_enrollment_verified,
+         totp_enrollment_verified = 0,
          updated_at = excluded.updated_at`,
     )
     .run(
       userId,
       (state.passwordChanged ?? current.passwordChanged) ? 1 : 0,
-      (state.totpEnrollmentVerified ?? current.totpEnrollmentVerified) ? 1 : 0,
       new Date().toISOString(),
     );
 }
 
+export function markOperatorEmailOtpSessionVerified(
+  database: OperatorDatabase,
+  input: {
+    readonly expiresAt: Date;
+    readonly sessionId: string;
+    readonly userId: string;
+  },
+): void {
+  const now = new Date();
+  if (
+    input.sessionId.length === 0 ||
+    input.sessionId.length > 256 ||
+    input.userId.length === 0 ||
+    input.userId.length > 256 ||
+    !Number.isFinite(input.expiresAt.getTime()) ||
+    input.expiresAt <= now
+  ) {
+    throw new TypeError("The operator email OTP session proof is invalid");
+  }
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    database
+      .prepare("DELETE FROM operator_email_otp_session WHERE expires_at <= ?")
+      .run(now.toISOString());
+    database
+      .prepare(
+        `INSERT INTO operator_email_otp_session(session_id, user_id, verified_at, expires_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(session_id) DO UPDATE SET
+           user_id = excluded.user_id,
+           verified_at = excluded.verified_at,
+           expires_at = excluded.expires_at`,
+      )
+      .run(input.sessionId, input.userId, now.toISOString(), input.expiresAt.toISOString());
+    const count = database
+      .prepare("SELECT count(*) AS value FROM operator_email_otp_session")
+      .get() as { readonly value: number };
+    if (count.value > OPERATOR_EMAIL_OTP_SESSION_MAX_ROWS) {
+      database
+        .prepare(
+          `DELETE FROM operator_email_otp_session
+           WHERE session_id IN (
+             SELECT session_id FROM operator_email_otp_session
+             ORDER BY expires_at ASC
+             LIMIT ?
+           )`,
+        )
+        .run(count.value - OPERATOR_EMAIL_OTP_SESSION_MAX_ROWS);
+    }
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+export function isOperatorEmailOtpSessionVerified(
+  database: OperatorDatabase,
+  input: { readonly sessionId: string; readonly userId: string },
+  now: Date = new Date(),
+): boolean {
+  const row = database
+    .prepare(
+      `SELECT 1 AS verified
+       FROM operator_email_otp_session
+       WHERE session_id = ? AND user_id = ? AND expires_at > ?`,
+    )
+    .get(input.sessionId, input.userId, now.toISOString()) as
+    { readonly verified: number } | undefined;
+  return row?.verified === 1;
+}
+
+export function clearOperatorEmailOtpSessions(database: OperatorDatabase, userId: string): number {
+  return Number(
+    database.prepare("DELETE FROM operator_email_otp_session WHERE user_id = ?").run(userId)
+      .changes,
+  );
+}
+
 export function revokeOperatorSessions(database: OperatorDatabase, userId: string): number {
-  return Number(database.prepare('DELETE FROM "session" WHERE userId = ?').run(userId).changes);
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    clearOperatorEmailOtpSessions(database, userId);
+    const revoked = Number(
+      database.prepare('DELETE FROM "session" WHERE userId = ?').run(userId).changes,
+    );
+    database.exec("COMMIT");
+    return revoked;
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
 }
