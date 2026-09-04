@@ -18,6 +18,7 @@ from typing import Sequence
 
 
 ADMIN_ORIGIN = "http://172.30.30.2:8080"
+ADVERTISED_ORIGIN = "https://mail.esmii.app"
 ADMIN_USERNAME = Path("/etc/myapp/secrets/production/stalwart-admin-username")
 ADMIN_PASSWORD = Path("/etc/myapp/secrets/production/stalwart-admin-password")
 MAIL_HOSTNAME = "mail.esmii.app"
@@ -45,7 +46,7 @@ class StalwartAdmin:
             raise ValueError("Stalwart session omitted its API URL")
         parsed = urllib.parse.urlsplit(api_url)
         if (
-            f"{parsed.scheme}://{parsed.netloc}" != ADMIN_ORIGIN
+            f"{parsed.scheme}://{parsed.netloc}" != ADVERTISED_ORIGIN
             or not parsed.path.startswith("/jmap")
             or parsed.query
             or parsed.fragment

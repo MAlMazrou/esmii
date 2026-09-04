@@ -12,7 +12,10 @@ MONITORING_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(MONITORING_ROOT))
 
 from provision_dashboard_mail import (  # noqa: E402
+    ADMIN_ORIGIN,
+    ADVERTISED_ORIGIN,
     MAIL_HOSTNAME,
+    StalwartAdmin,
     atomic_secret,
     parse_existing_smtp_url,
     query_account,
@@ -21,6 +24,33 @@ from provision_dashboard_mail import (  # noqa: E402
 
 
 class DashboardMailProvisionerTests(unittest.TestCase):
+    def test_admin_accepts_only_the_canonical_advertised_jmap_origin(self):
+        class Admin(StalwartAdmin):
+            session = {"apiUrl": f"{ADVERTISED_ORIGIN}/jmap/"}
+
+            def request(self, method, path, body=None):
+                self.requested = (method, path, body)
+                return self.session
+
+        admin = Admin("admin", "password")
+        self.assertEqual(admin.api_path, "/jmap/")
+        self.assertEqual(admin.requested, ("GET", "/jmap/session", None))
+        self.assertEqual(ADMIN_ORIGIN, "http://172.30.30.2:8080")
+
+        for api_url in (
+            f"{ADMIN_ORIGIN}/jmap/",
+            "http://mail.esmii.app/jmap/",
+            "https://other.example/jmap/",
+            f"{ADVERTISED_ORIGIN}:8443/jmap/",
+            f"{ADVERTISED_ORIGIN}/api/",
+            f"{ADVERTISED_ORIGIN}/jmap/?redirect=other",
+        ):
+            with self.subTest(api_url=api_url), self.assertRaisesRegex(
+                ValueError, "unsafe API URL"
+            ):
+                Admin.session = {"apiUrl": api_url}
+                Admin("admin", "password")
+
     def test_existing_secret_requires_exact_environment_sender_and_starttls(self):
         email = "monitoring-staging@esmii.app"
         password = "A" * 32
