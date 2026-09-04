@@ -132,6 +132,18 @@ sudo stat -c '%U:%G %a %n' \
 
 All installed files and records must be `root:root`; executable programs are mode `0755` and the two identity records are mode `0600`. Re-read both active timers afterward without restarting them, and run each timer's installed wrapper with `bash -n`. Stop if a byte/hash/mode differs, either record names a different payload identity, or a timer stopped unexpectedly. Manifest materialization and these installations still leave both `private-enabled` markers absent.
 
+For a later reviewed monitoring payload, do not run `--install-shared` over active shared collectors. First stop and remove every rendered monitoring environment through the fixed manager and rollback commands in the rollback section, then disable each registered environment exporter path. If—and only if—the candidate's installed collector files, systemd units, Docker firewall helper, and both active pull wrappers are byte-identical to the current installation, adopt the new sealed identity with:
+
+```bash
+sudo "${ESMII_MONITORING_PAYLOAD_ROOT}"/infra/monitoring/install-host-collectors.sh \
+  --expected-host-payload-digest "${ESMII_MONITORING_PAYLOAD_DIGEST}" \
+  --expected-host-payload-revision "${ESMII_MONITORING_PAYLOAD_REVISION}" \
+  --node-exporter-sha256 <NODE_EXPORTER_SHA256> \
+  --rebind-compatible-shared
+```
+
+The compatible rebind holds both host locks, verifies the old fixed-file manifest and pull-wrapper integration, compares every installed shared byte with the new candidate, and refuses while any environment manifest/configuration/activation marker/container/exporter proxy/listener/firewall rule remains. It updates only `host-payload.json`, `pull-wrapper-integration.json`, and `collector-install.sha256`, verifies the complete new state before releasing the lock, restores all three prior records if final verification fails, and never replaces shared code or changes systemd service state. A changed shared byte is not eligible for this path; use a separately reviewed full shared-component replacement instead.
+
 Provision or reconcile the dedicated sender before rendering the environment. This command reads the existing root-only Stalwart administrator credential in memory, creates or updates only `monitoring-staging@esmii.app` for staging or `monitoring@esmii.app` for production, writes only `/etc/esmii/monitoring/<environment>/dashboard-smtp-url` at root-owned mode `0600`, and never prints the generated credential. Do not reuse the application worker sender or copy this file between environments.
 
 ```bash
