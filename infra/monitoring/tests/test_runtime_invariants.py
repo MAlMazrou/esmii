@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -13,6 +18,36 @@ def read(path: str) -> str:
 
 
 class RuntimeInvariantTests(unittest.TestCase):
+    def test_payload_rollback_import_does_not_write_into_the_sealed_tree(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            payload_monitoring = Path(temporary) / "infra" / "monitoring"
+            payload_monitoring.mkdir(parents=True)
+            for filename in ("rollback_monitoring_runtime.py", "render_monitoring.py"):
+                shutil.copy2(
+                    REPOSITORY_ROOT / "infra" / "monitoring" / filename,
+                    payload_monitoring,
+                )
+
+            environment = os.environ.copy()
+            environment.pop("PYTHONDONTWRITEBYTECODE", None)
+            environment.pop("PYTHONPYCACHEPREFIX", None)
+
+            result = subprocess.run(
+                (
+                    sys.executable,
+                    str(payload_monitoring / "rollback_monitoring_runtime.py"),
+                    "--help",
+                ),
+                check=False,
+                capture_output=True,
+                env=environment,
+                text=True,
+                timeout=10,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse((payload_monitoring / "__pycache__").exists())
+
     def test_monitoring_host_payload_bootstrap_and_command_contract_are_closed(self):
         bootstrap = read("infra/monitoring/materialize-monitoring-payload.sh")
         runbook = read("docs/runbooks/monitoring-dashboard.md")
