@@ -109,12 +109,14 @@ describe("repository policy", () => {
     const dockerfile = await readFile("apps/dashboard/Dockerfile", "utf8");
     const images = await readFile("scripts/images.mjs", "utf8");
 
-    expect(dockerfile).toContain("--prod deploy /dashboard-operator-runtime");
+    expect(dockerfile).toContain("pnpm --filter @esmii/dashboard build:operator-cli");
     expect(dockerfile).toContain(
-      "/dashboard-operator-runtime/node_modules ./apps/dashboard/node_modules",
+      "/workspace/apps/dashboard/dist/operator-auth.mjs ./apps/dashboard/operator-auth.mjs",
     );
+    expect(dockerfile).not.toContain("/dashboard-operator-runtime/node_modules");
     expect(images).toContain("verifyDashboardOperatorCli(name)");
-    expect(images).toContain("/app/apps/dashboard/scripts/operator-auth.ts");
+    expect(images).toContain("/app/apps/dashboard/operator-auth.mjs");
+    expect(images).toContain('image.kind === "server" || image.kind === "dashboard"');
     expect(images).toContain('"migrate"');
   });
 

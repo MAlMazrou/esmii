@@ -183,8 +183,7 @@ function verifyDashboardOperatorCli(name) {
       "DASHBOARD_AUTH_SECRET_FILE=/tmp/dashboard-auth-secret",
       name,
       "node",
-      "--experimental-strip-types",
-      "/app/apps/dashboard/scripts/operator-auth.ts",
+      "/app/apps/dashboard/operator-auth.mjs",
       "migrate",
     ],
     { stdio: "inherit" },
@@ -498,7 +497,7 @@ if (process.argv[2] === "build") {
         "sh",
         image.tag,
         "-c",
-        image.kind === "server"
+        image.kind === "server" || image.kind === "dashboard"
           ? "test ! -e /usr/local/lib/node_modules/npm && test -z \"$(find /app/node_modules -type f -path '*/node_modules/*esbuild*/bin/esbuild' -print -quit)\""
           : "test ! -e /usr/local/lib/node_modules/npm",
       ],
