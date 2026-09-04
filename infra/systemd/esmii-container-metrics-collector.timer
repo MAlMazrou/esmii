@@ -1,0 +1,12 @@
+[Unit]
+Description=Collect Esmii container metrics every 15 seconds
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=15s
+AccuracySec=1s
+Persistent=false
+Unit=esmii-container-metrics-collector.service
+
+[Install]
+WantedBy=timers.target

@@ -6,7 +6,7 @@ This runbook prepares one Netcup RS 1000 G12 for isolated staging and production
 
 The expected host is x86-64/KVM with 4 dedicated AMD EPYC cores, 8 GB ECC RAM, 256 GB NVMe, one static IPv4 address, and a routed `/64` IPv6 subnet. Ubuntu 26.04 LTS is required.
 
-Prompt 04 creates and validates the code locally. Prompt 05 performs separately approved provisioning and staging deployment. Prompt 06 performs separately approved production/mail/backup activation.
+Prompt 04 created and validated the host code locally. Prompt 05 performed separately approved provisioning and staging deployment. Prompt 06 performed separately approved production/mail activation. Prompt 07 adds a custom monitoring repository/CI implementation only; its live audit, secrets, host installation, staging Worker/DNS/TLS migration, staging activation/soak, production DNS/TLS activation, and off-host outage monitor remain separate approvals.
 
 ## 2. Provider responsibility map
 
@@ -51,6 +51,15 @@ Before the corresponding Prompt 06 production gate, additionally record:
 - external monitoring and alert destination;
 - production mail senders and named operational mailboxes.
 
+Before a Prompt 07 monitoring host action, additionally record:
+
+- a fresh read-only inventory of listeners, Docker networks/containers, Caddy routes/certificates, systemd units/timers, memory/disk/inodes, and current Cloudflare Worker/DNS routes for both dashboard hostnames;
+- the exact pinned Prometheus/node_exporter artifacts and checksums plus the immutable dashboard image digest/source/revision/version labels;
+- separate root-only staging/production dashboard password, TOTP, session, recovery, SQLite/audit, and cookie-state file references without recording their values;
+- the captured pre-change Worker route/DNS state and tested restore procedure for each hostname;
+- the staging 24-hour soak start/end and objective acceptance evidence; and
+- an independently owned off-host outage-monitor destination, if that later gate is being proposed.
+
 Production-only values are not prerequisites for Prompt 05 staging. Each becomes mandatory immediately before the Prompt 06 action that consumes it.
 
 If Netcup identity verification cannot process the identifying script on the document, contact Netcup or use an offered prepayment route. Do not treat the server as available until verification and provisioning complete.
@@ -70,7 +79,12 @@ Remote setup is deliberately multi-gated:
 9. approve staging release sealing and activation;
 10. later, approve production secrets/release activation in Prompt 06;
 11. separately approve Netcup Mail-block removal, firewall/PTR, Cloudflare mail DNS, Stalwart, and a controlled mail test;
-12. separately approve off-Netcup Restic initialization/restore testing, monitoring changes, `main` advancement, and public launch.
+12. separately approve off-Netcup Restic initialization/restore testing, `main` advancement, and public launch;
+13. for Prompt 07, approve a fresh read-only host/Cloudflare audit before any monitoring change;
+14. separately approve root-only operator-secret creation/installation and the pinned node_exporter/socket-proxy/collector plus private staging Prometheus/dashboard apply;
+15. separately approve migration of `staging-dashboard.esmii.app` from its current Cloudflare Worker route to Caddy, including DNS/TLS and exact rollback state;
+16. accept the continuous 24-hour staging soak only after reviewing capacity, isolation, auth, redaction, and application-latency evidence; and
+17. separately approve production monitoring secrets/apply and the fresh `dashboard.esmii.app` DNS/TLS activation after proving the hostname is unoccupied. Off-host outage monitoring is another independent gate.
 
 Approval for one step does not authorize the next.
 
@@ -83,7 +97,7 @@ Approval for one step does not authorize the next.
 - Netcup provider firewall and host firewall both enforce reviewed policy.
 - Docker installed from an approved pinned source; Compose version meets the repository preflight.
 - Docker socket is never public and only trusted root-owned wrappers may control it.
-- No database, cache, Mailpit, Stalwart admin, reconciler, or private-health port is public.
+- No database, cache, Mailpit, Stalwart admin, reconciler, private-health, dashboard `3000`, Prometheus `9090`, or node_exporter `9100` port is public.
 - Shared Caddy is the only public HTTP edge.
 - Staging and production state/credentials/networks remain separate.
 - The Netcup Mail block remains enabled through staging.
@@ -222,7 +236,7 @@ For the host firewall, install every reviewed SSH, VPN, and web allow rule while
 | 25 | TCP | public mail peers | Prompt 06 mail gate only | SMTP reception |
 | 1993 | TCP | host loopback only | Prompt 06 | tunnel to operational IMAPS while validating `<MAIL_HOSTNAME>` |
 
-Everything else is denied unless a reviewed requirement is added. PostgreSQL, Valkey, Docker, Caddy admin, Stalwart admin, Mailpit, reconciler, and internal service ports are never public.
+Everything else is denied unless a reviewed requirement is added. PostgreSQL, Valkey, Docker, Caddy admin, Stalwart admin, Mailpit, reconciler, dashboard `3000`, Prometheus `9090`, node_exporter `9100`, and internal service ports are never public. Prompt 07 adds no provider- or host-firewall ingress rule: Caddy remains the sole public HTTP path.
 
 ### 11.2 Egress
 
@@ -255,14 +269,30 @@ Create during initial provisioning:
 ├── deployment-policies/
 │   └── staging.yaml
 ├── approved-releases/
-└── secrets/
-    ├── staging/
-    └── production/
+├── secrets/
+│   ├── staging/
+│   └── production/
+
+/etc/esmii/monitoring/
+├── staging/                           # separate secret/config files, mode 0600
+└── production/                        # separate secret/config files, mode 0600
 
 /var/lib/<app-slug>/operations/         # root:root 0700 persistent journal/inhibit state
+/var/lib/esmii/monitoring/
+├── shared/
+│   ├── state/                          # collector cursors/status, no secrets
+│   └── textfiles/                      # atomically replaced Prometheus textfiles
+├── staging/
+│   ├── auth/                           # staging SQLite auth/audit state
+│   ├── prometheus/                     # staging TSDB
+│   └── logs/                           # staging sanitized snapshot
+└── production/
+    ├── auth/                           # production SQLite auth/audit state
+    ├── prometheus/                     # production TSDB
+    └── logs/                           # production sanitized snapshot
 ```
 
-The top-level tree and releases are root-owned/non-writable by the deploy identity. Production directories may exist empty before Prompt 06, but no production data/secrets/services are initialized in Prompt 05. Caddy receives read-only access only to `*/media/public/variants`; API/worker receive only their environment-specific mounts. Secret files are root-readable with the minimum group access required by the service.
+The top-level tree and releases are root-owned/non-writable by the deploy identity. Production directories may exist empty before Prompt 06, but no production data/secrets/services are initialized in Prompt 05. Caddy receives read-only access only to `*/media/public/variants`; API/worker receive only their environment-specific mounts. Monitoring secret/config files are root-owned mode `0600`. Monitoring SQLite/auth/audit, Prometheus TSDB, collector cursor, and log-snapshot paths are separate per environment; dashboard mounts are read-only except the exact environment-local auth/audit/cache path. Neither dashboard receives application databases, customer auth state, Docker/journal sockets, or the other environment's state.
 
 The deployment identity cannot write `/var/lib/<app-slug>/operations`. Journal/inhibit files are atomically written and fsynced, survive reboot, and are cleared only by a verified commit/rollback recovery path. Completed journals have bounded archival retention and are included only as encrypted recovery evidence; restoring an old journal never authorizes a new operation.
 
@@ -287,6 +317,14 @@ Systemd units/timers cover:
 - disk-pressure and OOM checks;
 - maintenance jobs with locking and failure alerts.
 
+Prompt 07 additionally defines these disabled-by-default host units until their separate apply gate:
+
+- `esmii-node-exporter.service` on loopback plus separate staging/production proxy socket-service pairs on only `172.30.40.9:9100` and `172.30.41.9:9100`; enabling one environment cannot pull in the other environment's socket, and all five units share the 64 MiB `esmii-node-exporter.slice` ceiling;
+- `esmii-container-metrics-collector.timer` every 15 seconds with a fixed root-owned one-shot service at `MemoryMax=64M`; and
+- `esmii-log-collector.timer` every 30 seconds with a separate fixed root-owned one-shot service at `MemoryMax=64M`.
+
+The reviewed host-collector entrypoints are `infra/monitoring/install-host-collectors.sh` and `infra/monitoring/rollback-host-collectors.sh`; they install or remove only the allowlisted `infra/systemd/esmii-node-exporter*`, `infra/systemd/esmii-container-metrics-collector*`, and `infra/systemd/esmii-log-collector*` units plus their fixed scripts/configuration. Environment runtime rendering/apply/rollback uses only `infra/monitoring/render_monitoring.py`, `infra/monitoring/install-monitoring-runtime.sh`, `infra/monitoring/manage-monitoring-runtime.sh`, `infra/monitoring/install-pull-wrapper-integration.sh`, and `infra/monitoring/rollback_monitoring_runtime.py`. These programs are never installed or run mutably from a checkout: CI builds the dedicated closed Prompt-07 host payload, the operator independently records its archive/full-revision, tiny-bootstrap, and fixed-verifier hashes, installs the two separately approved verifier components outside the candidate tree, and only that fixed verifier materializes the archive under `/var/lib/esmii/monitoring/host-payloads/<digest-hex>`. Every mutating entrypoint re-verifies that sealed identity before creating locks/directories or changing state, and the collector, active-pull integration, and rendered runtime records bind it. Rendering is inert; the fixed manager alone changes private/edge activation markers and every monitoring Compose mutation shares `/run/lock/esmii/host-pull.lock` with the active project-`esmii` pull services. The two collectors must not overlap. They accept no parameters from HTTP/dashboard input, never expose a listener, and write only atomic bounded outputs. Node-exporter/collector or monitoring-runtime installation, enablement, or start is an external host mutation requiring its own approved check/apply.
+
 Timers must use locking, bounded runtimes, explicit environments, persistent missed-run behavior where safe, and observable failure.
 
 Use explicit schedules rather than one ambiguous backup timer:
@@ -300,6 +338,8 @@ Use explicit schedules rather than one ambiguous backup timer:
 | isolated restore check | Sunday 08:30 UTC | Prompt 06 | `Persistent=true`, randomized delay up to 15 minutes, effective oneshot `TimeoutStartSec=3h`, no production egress |
 | host prune | Saturday 04:30 UTC | Prompt 05 | `Persistent=true`, randomized delay up to 15 minutes, effective oneshot `TimeoutStartSec=30m`; Docker/image/log only |
 | maintenance | first Sunday 14:00 UTC | Prompt 05 | reviewed non-upgrade tasks only, `Persistent=true`, randomized delay up to 15 minutes, effective oneshot `TimeoutStartSec=2h` |
+| container metrics collector | every 15 seconds | Prompt 07 staging-host gate | fixed allowlist; `Persistent=false`; 12-second timeout; 64 MiB; scheduled not to overlap log collection |
+| sanitized log collector | every 30 seconds | Prompt 07 staging-host gate | fixed allowlist/redaction; `Persistent=false`; 25-second timeout; 64 MiB; scheduled not to overlap metrics collection |
 
 Every service has `OnFailure` wired to the external alert path and logs a run ID, result, duration, and lock outcome. The nominal times plus maximum random delay/runtime leave non-overlapping windows for state backup, weekly restore, host prune, maintenance, and the six-hour database job. Staggered randomized delays plus bounded locks handle simultaneous missed-run catch-up after reboot; a job that times out defers/alerts instead of running concurrently. Test the actual `systemd-analyze calendar` output, worst-case windows, reboot catch-up, timer overlap, and disabled-before-Prompt-06 state.
 
@@ -308,11 +348,14 @@ Every service has `OnFailure` wired to the external alert path and logs a run ID
 Cloudflare changes:
 
 - staging and production A/AAAA records;
+- only after separate Prompt 07 gates, migrate `staging-dashboard.esmii.app` from its recorded Cloudflare Worker custom-domain binding to the reviewed Caddy origin path, then create `dashboard.esmii.app` DNS only after a fresh audit proves the name remains unoccupied;
 - `mail.<domain>` A/AAAA as verified;
 - MX, SPF, DKIM, DMARC, bounce/feedback records;
 - narrowly scoped DNS-01 token if certificate automation requires it.
 
 Mail-related records must be DNS-only, not proxied. Application proxying is a separate reviewed choice and must preserve websocket/auth behavior.
+
+Before either dashboard migration, use a read-only Cloudflare audit to capture exact Worker route, record type/value/proxy state/TTL, origin reachability, and certificate state. Never guess that the two hostnames are ordinary A/AAAA records. Preserve the captured Worker configuration as the rollback target. After the separately approved route/DNS mutation, Caddy must obtain and auto-renew that hostname's Let's Encrypt certificate, redirect HTTP to HTTPS, serve only the intended environment dashboard, and expose no raw `3000`, `9090`, or `9100` path. A failed validation restores that hostname's preceding Worker/DNS route before any later environment proceeds.
 
 Netcup SCP changes:
 
@@ -349,7 +392,7 @@ Netcup offline snapshots may be taken before risky host maintenance when separat
 
 ## 17. Lightweight operations baseline
 
-The 8 GB host runs shared Caddy, reduced staging, and production. Keep Prometheus/Grafana/Loki, ClamAV, SeaweedFS, search clusters, replicas, and other optional containers disabled until measured need and a separately approved capacity/design change.
+The 8 GB host runs shared Caddy, reduced staging, and production. Prompt 07 authorizes repository implementation of one exact 1,088 MiB on-host exception: two 192 MiB dashboards, two 256 MiB Prometheus instances, one 64 MiB aggregate node_exporter/socket-proxy slice, and two non-overlapping 64 MiB root collectors. Prometheus retains at most seven days/1 GB inside a 1.25 GB disk allowance per environment. Log snapshots retain at most 24 hours/10,000 events/20 MiB with 4 KiB per-message truncation. Keep Grafana, Loki, cAdvisor, Alertmanager, additional exporters, tracing, ClamAV, SeaweedFS, search clusters, replicas, and other optional containers disabled until measured need and a separately approved capacity/design change.
 
 Minimum alerts:
 
@@ -364,6 +407,8 @@ Minimum alerts:
 - mail queue/deferral/bounce/reputation signals;
 - reconciler poll/deployment/rejection failures;
 - staging/production digest or isolation drift.
+
+Same-host Prometheus is diagnostic, not an external outage signal. Host, provider-network, power, or authoritative-DNS loss can remove the dashboard and its monitor together, so the off-host outage monitor remains a separate production-acceptance gate.
 
 ## 18. Validation and handoff
 
@@ -390,6 +435,17 @@ Before Prompt 06 restricted-production acceptance and any later public launch:
 - external monitoring and rollback pass;
 - `main` follows the verified-live rule after restricted-production acceptance;
 - opening the restricted hostname publicly, if requested, receives its own later approval. Remaining restricted is a valid launch decision and does not invalidate the accepted production release.
+
+Before Prompt 07 staging monitoring soak acceptance:
+
+- the fresh host/Cloudflare audit and exact rollback state are recorded;
+- only private monitoring ports/listeners exist, the four monitoring subnets render exactly, and no dashboard/Prometheus/Caddy process has the Docker socket;
+- staging operator password plus TOTP, eight-hour session, host-only cookie, CSRF/origin, rate-limit, revocation, and anonymous/password-only/wrong-host denial tests pass without exposing secrets;
+- Prometheus retention, snapshot age/count/size/message bounds, source allowlists, redaction sentinels, metric relabeling, and stale/degraded states pass;
+- total monitoring ceilings equal 1,088 MiB and a continuous 24-hour soak under representative application/mail load shows no sustained RAM above 70%, sustained swap, OOM, restart loop, disk/inode breach, or unacceptable application latency; and
+- staging rollback restores its preceding Worker route and removes only staging monitoring state/routes, leaving customer application/data/mail and production unchanged.
+
+Production monitoring requires explicit acceptance of that evidence, new production-only secrets/state, the same verified dashboard digest, a separate `dashboard.esmii.app` occupancy-check/DNS/TLS gate, production isolation tests, and a production-specific rollback rehearsal. It never inherits staging credentials or treats CI publication as deployment permission.
 
 ## 19. Netcup references
 

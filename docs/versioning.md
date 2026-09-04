@@ -3,7 +3,7 @@
 **Status:** active repository and deployment contract.
 **Version source of truth:** the root [`package.json`](../package.json).
 
-Esmii uses one application version for the whole monorepo. The web, API, worker, and migration entrypoints are released together as `vX.Y.Z`; private workspace-package versions are not independent releases.
+Esmii uses one application version for the whole monorepo. The web, API, worker, migration, and custom monitoring-dashboard entrypoints are released together as `vX.Y.Z`; private workspace-package versions are not independent releases. Publishing the dashboard artifact does not authorize either monitoring environment to be deployed.
 
 ## Current convention
 
@@ -43,13 +43,14 @@ Do not run `release:prepare` manually on `dev`. Normal work uses Conventional Co
 
 [`scripts/app-version.mjs`](../scripts/app-version.mjs) validates the root version and exposes it as `vX.Y.Z`:
 
-- `ESMII_APP_VERSION` identifies both OCI images and their `org.opencontainers.image.version` labels.
+- `ESMII_APP_VERSION` identifies all three OCI images—web, server, and dashboard—and their `org.opencontainers.image.version` labels.
 - `NEXT_PUBLIC_APP_VERSION` is passed to the web Docker build as a build argument before `next build`.
 - [`apps/web/next.config.ts`](../apps/web/next.config.ts) derives the same value from the root package and rejects a mismatched supplied value.
 - [`apps/web/lib/app-version.ts`](../apps/web/lib/app-version.ts) is the browser-safe, statically inlined application export.
 - [`apps/web/components/app-version.tsx`](../apps/web/components/app-version.tsx) renders the current version in the shared footer without a runtime request or client-side JavaScript.
+- [`apps/dashboard/Dockerfile`](../apps/dashboard/Dockerfile) accepts `ESMII_APP_VERSION`, `ESMII_IMAGE_SOURCE`, and `ESMII_IMAGE_REVISION`; CI builds it once from the repository root, labels it with the same version/source/revision contract, and publishes `ghcr.io/malmazrou/esmii-dashboard` by immutable full-SHA tag plus channel convenience pointer.
 
-The image builder and VPS pullers reject mismatched or non-pre-1.0 image labels. Environment-specific domains, credentials, and other runtime values remain outside the image; the public application version is the only approved `NEXT_PUBLIC_*` build value.
+The image builder and VPS pullers reject mismatched or non-pre-1.0 image labels. Environment-specific domains, credentials, Prometheus URLs, operator secrets, SQLite/snapshot paths, and other runtime values remain outside images; the public application version is the only approved `NEXT_PUBLIC_*` build value. Staging and production must instantiate the exact same dashboard digest with different root-owned runtime state.
 
 ## Future version page
 
@@ -70,6 +71,6 @@ corepack pnpm version:verify
 corepack pnpm commitlint
 ```
 
-After a release, verify that the root package and `CHANGELOG.md` were committed by the bot, `vX.Y.Z` points to that protected-main commit, the released protected-main ancestry and metadata were synchronized back to `dev`, CI reports the same version, and the deployed footer and OCI labels agree.
+After a release, verify that the root package and `CHANGELOG.md` were committed by the bot, `vX.Y.Z` points to that protected-main commit, the released protected-main ancestry and metadata were synchronized back to `dev`, CI reports the same version, and the deployed footer and all three OCI label sets agree. For a separately approved monitoring activation, also verify that the running staging and production dashboards report that same version and immutable dashboard digest without exposing an environment switch or secret-bearing configuration.
 
 `commit-and-tag-version` is used instead of the deprecated `standard-version` package because it preserves the same commit-driven workflow while remaining maintained. Changesets is intentionally not used: this repository releases one application as a unit and does not need independent workspace-package release plans.

@@ -10,6 +10,11 @@ import { createLocalDockerInvocation, spawnLocalDocker } from "./local-docker.mj
 const images = [
   { dockerfile: "apps/web/Dockerfile", kind: "web", tag: "esmii/web:prompt02" },
   { dockerfile: "apps/server/Dockerfile", kind: "server", tag: "esmii/server:prompt02" },
+  {
+    dockerfile: "apps/dashboard/Dockerfile",
+    kind: "dashboard",
+    tag: "esmii/dashboard:prompt07",
+  },
 ];
 
 const developmentProvenance = {
@@ -173,7 +178,7 @@ function runRuntimeFixture({ environmentName, image, kind, port }) {
     "--pids-limit",
     "128",
     "--memory",
-    "256m",
+    kind === "dashboard" ? "192m" : "256m",
     "--env",
     `APP_ENV=${environmentName}`,
     "--env",
@@ -206,6 +211,20 @@ function runRuntimeFixture({ environmentName, image, kind, port }) {
     if (environmentName === "production") {
       arguments_.push("--env", "INITIAL_PUBLIC_SHELL_MODE=true");
     }
+  } else if (kind === "dashboard") {
+    const peerPort = environmentName === "staging" ? port + 101 : port + 99;
+    arguments_.push(
+      "--env",
+      "HOSTNAME=127.0.0.1",
+      "--env",
+      `DASHBOARD_ENVIRONMENT=${environmentName}`,
+      "--env",
+      `DASHBOARD_ORIGIN=http://127.0.0.1:${port}`,
+      "--env",
+      `DASHBOARD_PEER_ORIGIN=http://127.0.0.1:${peerPort}`,
+      "--env",
+      "MONITORING_FIXTURE_MODE=true",
+    );
   } else {
     arguments_.push("--env", "HOSTNAME=127.0.0.1");
   }
@@ -243,11 +262,19 @@ function runRuntimeFixture({ environmentName, image, kind, port }) {
             "-e",
             `import { loadHttpServerConfig } from '@esmii/config/server'; const config = await loadHttpServerConfig(); if (config.appEnvironment !== '${environmentName}' || config.port !== ${port} || config.authentication.publicOrigin !== 'https://${environmentName}.example.invalid') process.exit(1);`,
           ]
-        : [
-            "node",
-            "-e",
-            `fetch('http://127.0.0.1:${port}/').then(async (response) => { const body = await response.text(); if (!response.ok || !body.includes('Opening Esmii') || !body.includes('${appVersion}')) process.exit(1); }).catch(() => process.exit(1));`,
-          ];
+        : kind === "dashboard"
+          ? [
+              "node",
+              "--experimental-strip-types",
+              "--input-type=module",
+              "-e",
+              `import { parseMonitoringServerConfig } from './apps/dashboard/lib/config/server.ts'; const response = await fetch('http://127.0.0.1:${port}/healthz'); const body = await response.json(); const config = parseMonitoringServerConfig(); if (!response.ok || body.status !== 'ok' || config.environment !== '${environmentName}' || config.fixtureMode !== true || config.origin !== 'http://127.0.0.1:${port}') process.exit(1);`,
+            ]
+          : [
+              "node",
+              "-e",
+              `fetch('http://127.0.0.1:${port}/').then(async (response) => { const body = await response.text(); if (!response.ok || !body.includes('Opening Esmii') || !body.includes('${appVersion}')) process.exit(1); }).catch(() => process.exit(1));`,
+            ];
     waitForFixture(name, probe);
     fixtureImageId = expectedImageId;
   } catch (error) {
@@ -278,7 +305,7 @@ function runRuntimeFixture({ environmentName, image, kind, port }) {
 }
 
 function runRuntimeFixtures() {
-  const identities = { server: new Set(), web: new Set() };
+  const identities = { dashboard: new Set(), server: new Set(), web: new Set() };
   const fixtures = [
     { environmentName: "staging", portOffset: 0 },
     { environmentName: "production", portOffset: 1 },
@@ -301,13 +328,25 @@ function runRuntimeFixtures() {
         port: 3101 + fixture.portOffset,
       }),
     );
+    identities.dashboard.add(
+      runRuntimeFixture({
+        environmentName: fixture.environmentName,
+        image: "esmii/dashboard:prompt07",
+        kind: "dashboard",
+        port: 3301 + fixture.portOffset,
+      }),
+    );
   }
 
-  if (identities.web.size !== 1 || identities.server.size !== 1) {
+  if (
+    identities.web.size !== 1 ||
+    identities.server.size !== 1 ||
+    identities.dashboard.size !== 1
+  ) {
     throw new Error("Runtime fixtures did not preserve one exact image identity per workload.");
   }
   console.log(
-    "The exact web and server image identities passed isolated staging and production runtime fixtures.",
+    "The exact web, server, and dashboard image identities passed isolated staging and production runtime fixtures.",
   );
 }
 
@@ -326,7 +365,7 @@ if (process.argv[2] === "build") {
       "--tag",
       image.tag,
     ];
-    if (image.kind === "web") {
+    if (image.kind === "web" || image.kind === "dashboard") {
       buildArguments.push("--build-arg", `NEXT_PUBLIC_APP_VERSION=${appVersion}`);
     }
     buildArguments.push(".");
@@ -343,6 +382,16 @@ if (process.argv[2] === "build") {
   ];
 
   for (const image of images) {
+    const imageForbidden =
+      image.kind === "dashboard"
+        ? [
+            ...forbidden.filter((value) => value !== "esmii.app" && value !== "staging.esmii.app"),
+            "https://esmii.app",
+            "http://esmii.app",
+            "https://staging.esmii.app",
+            "http://staging.esmii.app",
+          ]
+        : forbidden;
     const inspected = spawnLocalDocker(docker, ["image", "inspect", image.tag], {
       encoding: "utf8",
     });
@@ -368,7 +417,7 @@ if (process.argv[2] === "build") {
       );
       process.exit(1);
     }
-    if (containsForbidden(inspected.stdout, forbidden)) {
+    if (containsForbidden(inspected.stdout, imageForbidden)) {
       console.error(`${image.tag} contains a forbidden sentinel in image configuration.`);
       process.exit(1);
     }
@@ -382,7 +431,7 @@ if (process.argv[2] === "build") {
       console.error(`Could not inspect the build history for ${image.tag}.`);
       process.exit(history.status ?? 1);
     }
-    if (containsForbidden(history.stdout, forbidden)) {
+    if (containsForbidden(history.stdout, imageForbidden)) {
       console.error(`${image.tag} contains a forbidden sentinel in image history.`);
       process.exit(1);
     }
@@ -396,7 +445,7 @@ if (process.argv[2] === "build") {
         "sh",
         image.tag,
         "-c",
-        `if grep -R -a -F -q ${forbidden.map((value) => `-e '${value}'`).join(" ")} /app 2>/dev/null; then exit 1; fi`,
+        `if grep -R -a -F -q ${imageForbidden.map((value) => `-e '${value}'`).join(" ")} /app 2>/dev/null; then exit 1; fi`,
       ],
       { stdio: "inherit" },
     );
@@ -444,7 +493,7 @@ if (process.argv[2] === "build") {
       }
     }
 
-    scanSavedImage(image.tag, forbidden);
+    scanSavedImage(image.tag, imageForbidden);
   }
 
   console.log(

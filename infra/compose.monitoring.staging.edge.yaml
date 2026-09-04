@@ -1,0 +1,9 @@
+services:
+  caddy:
+    networks:
+      - staging-monitoring-edge
+    volumes:
+      - ./caddy/sites-enabled/staging-dashboard.caddy:/etc/caddy/sites-enabled/staging-dashboard.caddy:ro
+    depends_on:
+      staging-dashboard:
+        condition: service_healthy

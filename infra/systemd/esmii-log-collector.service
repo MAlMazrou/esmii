@@ -1,0 +1,38 @@
+[Unit]
+Description=Build bounded sanitized Esmii warning and error snapshots
+After=docker.service
+Requires=docker.service
+OnFailure=esmii-alert-failure@%n.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Environment=HOME=/var/empty
+Environment=LANG=C.UTF-8
+Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/usr/bin/flock --exclusive --wait 10 /run/lock/esmii-monitoring-collectors.lock /usr/local/libexec/esmii/log_collector.py
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+ReadOnlyPaths=-/run/log/journal -/var/log/journal
+ReadWritePaths=/var/lib/esmii/monitoring/staging/logs /var/lib/esmii/monitoring/production/logs /var/lib/esmii/monitoring/shared/state /run/lock
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+MemoryMax=64M
+TasksMax=64
+TimeoutStartSec=25s

@@ -16,6 +16,7 @@ readonly PRODUCTION_CADDY_PATH="${RUNTIME_ROOT}/caddy/sites-enabled/production.c
 readonly PREVIOUS_OVERLAY_PATH="${STATE_ROOT}/compose.production.previous.yaml"
 readonly PREVIOUS_CADDY_PATH="${STATE_ROOT}/production.previous.caddy"
 readonly STATE_PATH="${STATE_ROOT}/current.env"
+readonly MONITORING_OVERLAY_HELPER=/usr/local/libexec/esmii/monitoring_overlay_state.py
 
 if [[ ${EUID} -ne 0 ]]; then
   echo "The production pull service must run as root." >&2
@@ -85,6 +86,27 @@ if ! flock -n 9; then
   exit 0
 fi
 
+declare -a MONITORING_COMPOSE_ARGUMENTS=()
+load_monitoring_compose_arguments() {
+  local output path
+  if [[ ! -x ${MONITORING_OVERLAY_HELPER} ]]; then
+    if [[ -e ${RUNTIME_ROOT}/monitoring/runtime-manifest.staging.json \
+      || -e ${RUNTIME_ROOT}/monitoring/runtime-manifest.production.json ]]; then
+      echo "Monitoring overlays exist but their root-owned verifier is unavailable." >&2
+      exit 1
+    fi
+    return
+  fi
+  output=$("${MONITORING_OVERLAY_HELPER}" list) || exit 1
+  while IFS= read -r path; do
+    [[ -z ${path} ]] && continue
+    [[ ${path} =~ ^/srv/myapp/staging-runtime/compose\.monitoring\.(staging|production)(\.edge)?\.yaml$ ]] \
+      || { echo "Monitoring verifier returned an unexpected Compose path." >&2; exit 1; }
+    MONITORING_COMPOSE_ARGUMENTS+=(-f "${path}")
+  done <<<"${output}"
+}
+load_monitoring_compose_arguments
+
 /usr/local/libexec/esmii/prepare-production-runtime-secrets.py
 
 resolve_digest_reference() {
@@ -115,6 +137,7 @@ compose() {
     -f "${STAGING_OVERLAY_PATH}" \
     -f "${OVERLAY_PATH}" \
     -f "${mail_overlay}" \
+    "${MONITORING_COMPOSE_ARGUMENTS[@]}" \
     "$@"
 }
 
@@ -125,6 +148,7 @@ capture_compose() {
     -f "${STAGING_OVERLAY_PATH}" \
     -f "${OVERLAY_PATH}" \
     -f "${CAPTURE_OVERLAY_PATH}" \
+    "${MONITORING_COMPOSE_ARGUMENTS[@]}" \
     "$@"
 }
 
@@ -135,6 +159,7 @@ external_compose() {
     -f "${STAGING_OVERLAY_PATH}" \
     -f "${OVERLAY_PATH}" \
     -f "${EXTERNAL_OVERLAY_PATH}" \
+    "${MONITORING_COMPOSE_ARGUMENTS[@]}" \
     "$@"
 }
 
@@ -143,6 +168,7 @@ staging_compose() {
     --project-name esmii \
     -f "${RUNTIME_ROOT}/compose.yaml" \
     -f "${STAGING_OVERLAY_PATH}" \
+    "${MONITORING_COMPOSE_ARGUMENTS[@]}" \
     "$@"
 }
 

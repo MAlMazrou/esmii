@@ -6,14 +6,15 @@
 
 On 30 August 2026 the user replaced the planned manual application-promotion trigger with direct environment branch automation. On 1 September 2026 the user added a required pre-build semantic-release step for `main`:
 
-- successful `dev` CI publishes immutable full-SHA images, advances only `:dev`, and the VPS staging timer activates them;
+- successful `dev` CI publishes immutable full-SHA web, server, and dashboard images and advances only their `:dev` pointers; the existing VPS staging timer continues to activate only the web/server application pair until the separately approved monitoring-host gate;
 - every accepted `main` change first creates a bot-owned `package.json`/`CHANGELOG.md` release commit and immutable `vX.Y.Z` tag; only that tagged protected-main revision is dispatched to CI;
-- successful versioned `main` CI publishes immutable full-SHA images, advances only `:main`, and the VPS production timer activates them;
+- successful versioned `main` CI publishes immutable full-SHA web, server, and dashboard images and advances only their `:main` pointers; the existing VPS production timer continues to activate only the web/server application pair until the separately approved monitoring-host gate;
 - both timers resolve mutable convenience pointers to immutable digests, verify OCI source/revision/version labels, serialize through one host lock, run migrations and health checks, and restore the preceding environment overlay on failure;
 - staging and production keep separate databases, Valkey instances, media roots, credentials, networks, cookies, and mail state;
 - the separately approved 31 August 2026 mail gate selected the production `external` Stalwart overlay; staging uses only a separate sender/credential on its internal submission network for the two allowlisted testers while its private Mailpit remains operator-only;
 - staging trusts the internal Stalwart endpoint through a staging-owned read-only copy of its public certificate; certificate rotation must refresh that copy before restarting the staging worker, and no Stalwart private key crosses the environment boundary;
-- production Google OAuth, offsite-backup/restore acceptance, external monitoring acceptance, and final hardened-production acceptance remain inactive.
+- Prompt 07 repository implementation is approved, but live monitoring secrets, host installation, Worker/DNS/TLS migration, staging activation, the 24-hour soak acceptance, production activation, and off-host outage monitoring remain separate gates; and
+- production Google OAuth, offsite-backup/restore acceptance, off-host outage-monitor acceptance, and final hardened-production acceptance remain inactive.
 
 This current policy controls application delivery where older sections below describe manual exact-staging-digest promotion. The sealed manifest design remains the target for later mail, backup, recovery, and fully accepted production transitions.
 
@@ -49,7 +50,7 @@ There are no long-lived `staging` or `production` branches. `dev` is the integra
 
 The user authorized a smaller staging-only delivery path on 30 August 2026 so ordinary `dev` changes can reach the VPS without GitHub receiving SSH access. The active path is deliberately limited:
 
-1. `ci.yaml` runs the complete repository checks for a `dev` push and publishes full-SHA web/server images. Only after every required job succeeds does it advance the two `:dev` staging pointers. A release-metadata sync from `main` uses an explicit staging dispatch bound to the synchronized version.
+1. `ci.yaml` runs the complete repository checks for a `dev` push and publishes full-SHA web/server/dashboard images. Only after every required job succeeds does it advance the three `:dev` staging pointers. A release-metadata sync from `main` uses an explicit staging dispatch bound to the synchronized version. Publishing the dashboard image does not activate it on the VPS.
 2. The root-owned `esmii-staging-pull.timer` polls outbound every two minutes. It accepts only the current `dev` head with a successful push-triggered or release-sync-dispatched `ci.yaml` run and requires matching source/revision/version OCI labels.
 3. The host prefers immutable GHCR digest references. While anonymous GHCR pull is unavailable, it downloads and builds only that exact successful public `dev` SHA on the VPS, tags the result with the full SHA, and verifies the same OCI source/revision labels before activation.
 4. The host renders only the staging overlay, runs the one-shot migration, starts the isolated staging services, checks public HTTPS health, and restores the preceding Compose overlay or the temporary demo if activation fails.
@@ -94,7 +95,7 @@ Protect `dev` with required reviews/checks and disallow direct or force pushes. 
 For a protected `dev` candidate or a tagged protected-`main` release, CI:
 
 1. repeats required checks;
-2. builds the web and server images for the verified VPS platform;
+2. builds the web, server, and dashboard images for the verified VPS platform;
 3. publishes immutable Git-SHA tags to GHCR;
 4. resolves registry-reported image digests;
 5. generates an immutable, environment-neutral application payload containing the exact image references, migration inventory, SBOM/provenance, and test-evidence references, but no Compose files, shared infrastructure, activation manifest, or secrets;
@@ -103,7 +104,7 @@ For a protected `dev` candidate or a tagged protected-`main` release, CI:
 
 No later environment rebuild is allowed. A source, lockfile, image, or application-payload change creates a new candidate and must pass staging again. Prompt 04 locally and deterministically produces the reviewed shared-infrastructure payload containing Compose/Caddy/non-secret host configuration and records its expected checksum without publishing it. Under Prompt 05's separate registry approval, CI reproduces the exact bytes from the reviewed commit, requires the approved checksum, independently attests them, and publishes an immutable GHCR OCI artifact. The VPS then verifies the downloaded registry digest/checksum. Each host transition gets a signed activation manifest that references that shared-infrastructure payload plus one application payload for each active environment. This lets staging advance while production safely remains on its older tested application payload. Changing shared infrastructure is never a routine automatic staging update.
 
-Build-once also means environment-neutral client/server images. Do not pass environment-specific build arguments or `NEXT_PUBLIC_*` values. The sole approved exception is `NEXT_PUBLIC_APP_VERSION`, which is public, environment-neutral, derived from the root package, and passed before `next build`; both application images carry the same `org.opencontainers.image.version` label. Client code uses same-origin relative routes; any other required browser-safe environment metadata comes from a typed allowlisted runtime SSR/API payload. CI searches the built standalone output/client chunks for staging/production domains, OAuth IDs, cookie names, mail hosts, and sentinel secrets, then runs the same image digests under separate staging and production runtime fixtures.
+Build-once also means environment-neutral client/server/dashboard images. Do not pass environment-specific build arguments or `NEXT_PUBLIC_*` values. The sole approved exception is `NEXT_PUBLIC_APP_VERSION`, which is public, environment-neutral, derived from the root package, and passed before `next build`; all three images carry the same `org.opencontainers.image.version` label plus matching OCI source/revision labels. Customer client code uses same-origin relative routes. Dashboard browser code uses only same-origin typed monitoring APIs, while its server receives the fixed environment, private Prometheus URL, and state paths at runtime. CI searches standalone output/client chunks for staging/production domains, OAuth IDs, cookie names, mail hosts, and sentinel secrets, then proves the same dashboard digest starts under separate staging and production runtime fixtures.
 
 ### 2.3 GitHub Environments
 
@@ -125,7 +126,7 @@ The environment workflow creates a GitHub Deployment request containing:
 - immutable shared-infrastructure-payload digest;
 - immutable application-payload digest for every active environment;
 - signed environment-specific activation-manifest digest;
-- immutable web/server image digests;
+- immutable web/server image digests and, when a monitoring transition is in scope, the separately gated dashboard image digest;
 - release ID and monotonic/replay-prevention identifier;
 - deployment epoch plus monotonic sequence within that epoch;
 - expected previous release ID;
@@ -499,23 +500,37 @@ Stalwart is limited to application magic links, invitations, system notification
 
 ## 11. Monitoring
 
-The 8 GB launch profile uses lightweight host/application telemetry and an external monitoring destination. Do not enable Prometheus/Grafana/Loki or other heavy containers by default.
+Prompt 07 replaces the earlier blanket Prometheus deferral with one bounded on-host profile: a staging and production dashboard at fixed hostnames, a private Prometheus per environment, one loopback-only host node_exporter reached through private systemd socket proxies, and fixed root metrics/log collectors. It does not approve cAdvisor, Grafana, Loki, Alertmanager, arbitrary PromQL, raw log access, or another observability service.
 
-Monitor at minimum:
+Repository/CI completion is not a deployment. Activate in this order, with a separate approval at each external boundary:
+
+1. Perform a fresh read-only host, port, Docker-network, Caddy, systemd/timer, resource, and Cloudflare Worker/DNS audit. Resolve drift before applying anything.
+2. Create the two root-only Better Auth operator realms and their separate password, TOTP, session, SQLite/audit, cookie, and recovery state without exposing secret values in shell arguments or logs.
+3. From the dedicated deterministic Prompt-07 host payload only, independently verify the approved tiny-bootstrap hash, fixed-verifier hash, archive digest, closed inventory, and full source revision before root-only materialization or any install mutation. The fixed verifier lives outside the candidate tree and candidate code never authenticates itself. Install the payload's pinned active-pull/firewall integration plus host exporter/proxies and root collectors; bind the payload identity in the install/runtime records while keeping `9090`, `9100`, snapshots, SQLite, and Docker/journal access private. Validate redaction sentinels and the exact 1,088 MiB ceiling.
+4. Activate staging Prometheus and `staging-dashboard` with the immutable full-SHA dashboard digest, private staging networks/state, and no public route. Verify anonymous/password-only/wrong-host denial.
+5. Audit the current `staging-dashboard.esmii.app` Cloudflare Worker route. Capture its exact rollback state, then separately approve and apply the Worker/DNS change that lets Caddy obtain/auto-renew a Let's Encrypt certificate, enforce the HTTP-to-HTTPS redirect, and route only to the staging dashboard.
+6. Complete a continuous 24-hour staging soak under representative combined application/mail load. Require no sustained RAM above 70%, sustained swap, OOM, repeated restart, disk/inode breach, snapshot/metrics staleness, secret leakage, isolation failure, or unacceptable customer-application latency.
+7. After explicit soak acceptance and a separate production approval, instantiate the same dashboard digest with production-only Prometheus, networks, auth/audit state, credentials, and snapshots; then prove `dashboard.esmii.app` remains unoccupied, separately create its DNS-only records, and validate Caddy's Let's Encrypt certificate/automatic renewal, HTTPS redirect, and routing.
+8. Keep the external outage monitor separate. Same-host Prometheus cannot establish that the VPS, provider network, power, or authoritative DNS is reachable.
+
+Prometheus is capped at 256 MiB per environment and retains at most seven days or 1 GB inside a 1.25 GB disk allowance. Each dashboard is capped at 192 MiB. The exporter/socket-proxy slice is 64 MiB; the 15-second metrics and 30-second log collectors are non-overlapping one-shots with `MemoryMax=64 MiB` each. Each sanitized environment log snapshot is atomically replaced and retains at most 24 hours, 10,000 events, or 20 MiB, with every post-redaction message truncated to 4 KiB.
+
+The initial bounded Prompt 07 profile monitors at minimum:
 
 - external HTTPS and TLS validity;
 - `/api/health/live` and `/api/health/ready`;
 - protected dependency checks from an operator/internal path;
 - container health/restarts/OOM kills;
 - host RAM, swap, load, disk, inode, and I/O pressure;
-- PostgreSQL connections, backup age, restore-test age, and disk growth;
-- Valkey memory/evictions;
-- queue depth, retries, dead-letter/failure state, and outbox age;
-- mail queue, deferrals, bounces, reputation signals, and certificate expiry;
-- reconciler poll age, rejected deployment requests, deployment duration, and last successful release;
+- worker heartbeat, migration result, deployment/timer outcome, and last successful release;
+- bounded sanitized warning/error events and collector freshness; and
 - staging/production digest and isolation invariants.
 
+PostgreSQL connection detail, Valkey evictions, queue/outbox depth, mail queue/reputation, backup/restore age, HTTP request count/error rate/p95 latency, and other application-internal telemetry remain stable future metric descriptors. Do not fabricate them or add another exporter within Prompt 07; instrument and budget each source under a later approved change.
+
 Investigate sustained RAM above 70%; treat sustained 75%+, active normal-load swap, any OOM kill, or disk above 80% as an immediate capacity incident.
+
+Monitoring rollback is environment-local and fail-closed. First remove or restore only the affected Caddy/Worker route to its captured predecessor. Stop that environment's dashboard and Prometheus, disable only newly installed monitoring units/sockets when no active environment still depends on them, and restore the prior monitoring Compose/state pointer. Never remove customer application/database/media/mail state, reuse the other environment's credentials, roll back schema, or expose a raw backend as a workaround. Preserve sanitized incident evidence and the prior known-good image/config digest; a failed production activation leaves staging unchanged.
 
 ## 12. Manual and approval-only actions
 
@@ -530,7 +545,8 @@ These are never implied by a merge, except that Prompt 05 may explicitly authori
 - initial release sealing/environment activation, any production release, and any staging release outside the already approved automatic policy;
 - Stalwart activation or external email test;
 - Restic repository initialization/write/restore;
-- external monitoring changes;
+- any Prometheus/node_exporter/collector/dashboard VPS install or activation, monitoring operator-secret creation/installation, Caddy route or certificate request, Cloudflare Worker/DNS mutation, staging-soak acceptance, or production monitoring activation;
+- off-host outage-monitor changes;
 - `main` advancement;
 - public production launch;
 - destructive migration/reset or data restore.
@@ -554,3 +570,9 @@ Each approval names the target, exact release/change, expected effect, and rollb
 - Production Restic backups leave Netcup and pass an isolated restore.
 - Staging and production isolation tests fail in every forbidden direction.
 - Combined host operation stays inside the documented 8 GB/256 GB thresholds.
+- CI publishes one immutable dashboard image alongside web/server with matching OCI source/revision/version labels, a registry digest, vulnerability scan, and SBOM, without deploying it or receiving provider/VPS secrets.
+- Staging and production monitoring have distinct Prometheus, networks, SQLite/auth/audit state, credentials, cookies, snapshots, and routes while using the same dashboard image digest.
+- Every monitoring page/API requires an eight-hour Better Auth operator session completed with password plus TOTP; no dashboard credential or session authorizes customer application access.
+- Raw dashboard `3000`, Prometheus `9090`, node_exporter `9100`, collector outputs, and SQLite never become public.
+- Production monitoring remains blocked until the documented staging-only activation and 24-hour soak pass; its rollback leaves staging and all customer state unchanged.
+- Off-host outage monitoring remains a separately approved production-acceptance requirement.

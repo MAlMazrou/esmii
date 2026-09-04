@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh sanitized Esmii log snapshots every 30 seconds
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=30s
+AccuracySec=1s
+Persistent=false
+Unit=esmii-log-collector.service
+
+[Install]
+WantedBy=timers.target

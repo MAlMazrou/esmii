@@ -1,0 +1,19 @@
+:root[data-theme="contract-test"] {
+  --surface-primary: var(--neutral-950);
+  --surface-secondary: var(--neutral-850);
+  --surface-tertiary: var(--neutral-700);
+  --border-subtle: var(--neutral-700);
+  --border-strong: var(--neutral-500);
+  --text-primary: var(--neutral-0);
+  --text-secondary: var(--neutral-200);
+  --text-disabled: var(--neutral-500);
+  --action-primary-surface: var(--neutral-0);
+  --action-primary-surface-hover: var(--neutral-100);
+  --action-primary-foreground: var(--neutral-950);
+  --action-primary-soft: color-mix(in srgb, var(--action-primary) 24%, var(--surface-primary));
+  --status-healthy-soft: color-mix(in srgb, var(--status-healthy) 18%, var(--surface-primary));
+  --status-warning-soft: color-mix(in srgb, var(--status-warning) 18%, var(--surface-primary));
+  --status-critical-soft: color-mix(in srgb, var(--status-critical) 18%, var(--surface-primary));
+  --chart-grid: var(--neutral-700);
+  --chart-fill: color-mix(in srgb, var(--chart-primary) 20%, transparent);
+}

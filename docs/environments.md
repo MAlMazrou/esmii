@@ -4,7 +4,7 @@
 
 This project has three environments: disposable local development, always-on staging, and production. The first remote host is one Netcup RS 1000 G12 with 4 dedicated x86-64 cores, 8 GB ECC RAM, 256 GB NVMe, static IPv4, and a routed `/64` IPv6 network.
 
-Staging and production share that machine and the one public Caddy instance, but they remain separate security and data domains. This is useful isolation, not high availability: a host, provider, disk, kernel, or Caddy failure can affect both environments.
+Staging and production share that machine and the one public Caddy instance, but they remain separate security and data domains. Prompt 07 adds separate dashboard/Prometheus/auth/log/metric domains while sharing only the physical host, Caddy, immutable dashboard image, one host node_exporter, and fixed root collectors. This is useful isolation, not high availability: a host, provider, disk, kernel, Caddy, or shared collector failure can affect both environments.
 
 Cloudflare remains the registrar and authoritative DNS provider. Netcup supplies compute, SCP/CCP recovery, network/firewall controls, PTR, images, snapshots, and the default mail restriction.
 
@@ -29,6 +29,9 @@ As of 31 August 2026, the separately approved mail gate has removed that default
 | Backup | none | excluded from production Restic dataset | Restic repository outside Netcup |
 | Deployment source | working tree | successful protected `dev` candidate | successful tagged and versioned protected `main` candidate |
 | User access | developer | exactly two user-selected tester addresses; `noindex` retained | public application; provider availability remains environment-configured |
+| Monitoring hostname | local fixtures only | `staging-dashboard.esmii.app` after its Worker/DNS/TLS gate | `dashboard.esmii.app` after staging soak and its separate DNS/TLS gate |
+| Monitoring data | synthetic fixtures | `staging-prometheus`, staging metric/log snapshot only | `production-prometheus`, production metric/log snapshot only |
+| Monitoring auth | synthetic operator | staging-only Better Auth password+TOTP realm/SQLite/cookie/secrets | production-only Better Auth password+TOTP realm/SQLite/cookie/secrets |
 
 ## 3. Rules that apply everywhere
 
@@ -44,6 +47,8 @@ As of 31 August 2026, the separately approved mail gate has removed that default
 - Workers have no public default route. APIs receive only the egress explicitly required by product behavior.
 - No production data is copied to development or staging.
 - No mutable `latest` tag is a release identity.
+- Monitoring environment identity is fixed server-side. A browser environment control is a link between hostnames, never a data selector; each hostname requires its own operator password+TOTP session.
+- Prometheus, node_exporter, collector outputs, dashboard SQLite files, and monitoring service ports remain private. Caddy exposes only the authenticated dashboard and detail-free `/healthz`.
 
 ## 4. Development
 
@@ -62,7 +67,7 @@ The development API mounts neither the action-link derivation keyring nor pg-bos
 
 The Google callback is optional locally. Providers outside the active Google-only scope remain disabled and unconfigured.
 
-Prompts 03 and 04 are completed and locally verified on `dev`. Prompt 05 is complete and its `dev` timer automatically updates staging after successful CI. Management SSH is key-only for `esmii-administrator` through `10.77.0.1`; UFW permits only VPN-scoped SSH plus public WireGuard and web traffic, and the Netcup provider firewall is unchanged. On 30 August 2026 the user authorized a separate public `main` application timer and public `esmii.app` DNS. Production Google OAuth, external mail, real-user onboarding, backup acceptance, and final hardened-production acceptance remain inactive.
+Prompts 03 and 04 are completed and locally verified on `dev`. Prompt 05 is complete and its `dev` timer automatically updates staging after successful CI. Management SSH is key-only for `esmii-administrator` through `10.77.0.1`; UFW permits only VPN-scoped SSH plus public WireGuard and web traffic. On 30 August 2026 the user authorized a separate public `main` application timer and public `esmii.app` DNS. Prompt 07 repository implementation is authorized on `dev`, but no dashboard host, secret, Worker/DNS/TLS, soak, production-monitoring, or external-outage-monitor action is active merely because source exists. Production Google OAuth, backup acceptance, external outage-monitor acceptance, and final hardened-production acceptance remain inactive.
 
 ## 5. Initial remote state: staging first
 
@@ -196,7 +201,33 @@ Before production activation, prove all of the following:
 - both workers lack public internet egress;
 - Caddy reads only each environment's public prepared-variants directory.
 
-## 10. Resource budget for the 8 GB host
+Prompt 07 additionally proves:
+
+- `staging-dashboard`/`staging-prometheus` use only staging monitoring networks, mounts, SQLite state, credentials, cookies, labels, and log snapshots;
+- `production-dashboard`/`production-prometheus` use only production equivalents;
+- the shared node_exporter binds only to `127.0.0.1:9100`; systemd socket proxies listen only at `172.30.40.9:9100` and `172.30.41.9:9100`, with host-public `9100` absent;
+- staging monitoring uses edge `172.30.40.0/29` and internal data `172.30.40.8/29`; production uses edge `172.30.41.0/29` and internal data `172.30.41.8/29`;
+- Caddy joins only the monitoring edge networks, each dashboard joins only its own edge/data pair, and each Prometheus joins only its own data network;
+- each Prometheus drops the other environment's collector series while retaining clearly labelled shared-host series;
+- neither dashboard, Caddy, nor Prometheus receives the Docker socket, root command access, customer database credentials, or application data/mail/storage networks; and
+- cross-host cookies, operator credentials, sessions, SQLite files, Prometheus queries, and log snapshots fail closed.
+
+## 10. Prompt 07 monitoring activation order
+
+Repository/local validation comes first and changes no environment. External rollout then remains ordered and separately approved:
+
+1. fresh read-only Cloudflare/VPS audit;
+2. root-only monitoring secret and host-change approval;
+3. private staging monitoring activation and VPN verification, with no dashboard DNS change;
+4. recorded detachment of only the existing `staging-dashboard.esmii.app` Worker binding, DNS-only A/AAAA creation, and Caddy TLS verification;
+5. continuous 24-hour staging soak and explicit acceptance;
+6. separate production realm/Prometheus/dashboard activation using the already verified dashboard digest;
+7. separate `dashboard.esmii.app` DNS-only/TLS activation after proving the name is unoccupied; and
+8. a separate off-host outage-monitor/alert route, because same-VPS monitoring cannot observe total host/provider/network/DNS loss.
+
+Rollback at any staging phase restores the recorded Worker/DNS/Caddy state and removes only staging monitoring. Production rollback removes only production monitoring and preserves staging monitoring plus both application environments.
+
+## 11. Resource budget for the 8 GB host
 
 Initial Compose limits are conservative caps to be tuned from measurements:
 
@@ -215,8 +246,15 @@ Initial Compose limits are conservative caps to be tuned from measurements:
 | Production API | 384 MB |
 | Production worker | 256 MB |
 | Production Stalwart | 512 MB |
+| Staging dashboard | 192 MB |
+| Production dashboard | 192 MB |
+| Staging Prometheus | 256 MB |
+| Production Prometheus | 256 MB |
+| Shared host node_exporter plus private socket proxies | 64 MB aggregate |
+| Root metrics collector (`MemoryMax`, transient) | 64 MB |
+| Root log collector (`MemoryMax`, transient) | 64 MB |
 
-These caps total roughly 3.9 GB. The remainder is reserved for Ubuntu, Docker, page cache, migrations, media-processing bursts, backup/restore work, and safety headroom. Configure PostgreSQL/Valkey internal memory settings consistently with the container caps; limits alone are insufficient.
+The existing service caps total 4,000 MiB; Prompt 07 adds exactly 1,088 MiB for a 5,088 MiB ceiling. One 192 MiB migration raises the bounded peak to 5,280 MiB. The remaining 2,912 MiB is for Ubuntu, Docker, kernel, page cache, backup/restore, media bursts, and safety headroom. Limits are ceilings, not reservations. Configure PostgreSQL/Valkey internal memory settings consistently with their caps; limits alone are insufficient. The collectors are scheduled not to overlap.
 
 Render distinct database/cache configurations. The starting PostgreSQL values are staging `shared_buffers=64MB`, `max_connections=20` and production `shared_buffers=128MB`, `max_connections=40`, with pool/worst-case tests. Valkey starts at `maxmemory=72MB` under the 128 MB staging cap and `160MB` under the 256 MB production cap. Runtime/cgroup tests must prove allocator/process/query headroom before acceptance.
 
@@ -225,14 +263,16 @@ Operating rules:
 - investigate sustained total RAM above 70%;
 - treat sustained 75%+, active swap during normal load, or any OOM kill as an immediate capacity incident;
 - keep worker concurrency at 1 until measured evidence supports a change;
-- never enable optional monitoring stacks, replicas, SeaweedFS, ClamAV, or search clusters merely because RAM is 8 GB;
+- enable only the exact Prompt 07 monitoring profile after its gates; Grafana, Loki, cAdvisor, tracing, replicas, SeaweedFS, ClamAV, and search clusters remain excluded;
+- block production monitoring until the 24-hour staging soak proves combined headroom and acceptable application latency;
+- cap each Prometheus at seven days/1 GB inside a 1.25 GB allowance and each sanitized snapshot at 24 hours/10,000 events/20 MiB with 4 KiB per-message truncation;
 - serialize migrations, heavy image processing, restore tests, and other bursty maintenance when necessary;
 - alert on disk at 60%, act at 70%, and treat 80% as critical;
 - keep at least 20% of the 256 GB disk free and maintain off-provider backups.
 
 If normal operation cannot retain headroom, optimize first, then use a compatible vertical upgrade when Netcup supports it or migrate to a larger host through the documented recovery path. Scaling to multiple hosts later still requires externalizing state, shared object storage, connection pooling, a multi-instance realtime adapter, and tested orchestration; it is not automatic.
 
-## 11. Acceptance checklist
+## 12. Acceptance checklist
 
 - A clean clone starts development with the documented command.
 - Prompt 05 brings up base+staging only.
@@ -246,3 +286,7 @@ If normal operation cannot retain headroom, optimize first, then use a compatibl
 - Netcup's Mail block remains in place until the Prompt 06 mail gate.
 - Production Restic data leaves Netcup and passes an isolated restore test.
 - The combined host remains within memory, disk, CPU, and rollback headroom thresholds.
+- Prompt 07 builds one immutable dashboard image and proves separate staging/production runtime configuration, auth, metrics, logs, cookies, SQLite state, and networks.
+- No Prometheus/node_exporter/collector port or Docker socket is public or reachable through Caddy/dashboard.
+- Production monitoring remains inactive until repository checks, private staging verification, public staging auth/TLS/isolation, and the continuous 24-hour soak are accepted.
+- Off-host outage monitoring remains a separate required control and is not satisfied by either on-VPS Prometheus instance.

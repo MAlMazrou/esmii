@@ -25,6 +25,8 @@
     "test:worker": "pnpm --filter @esmii/server exec vitest run tests/worker.test.ts tests/pg-boss.test.ts",
     "test:integration": "vitest run tests/integration",
     "test:runtime-config": "vitest run tests/runtime",
+    "test:monitoring": "pnpm --filter @esmii/dashboard test && python3 -m unittest discover -s infra/monitoring/tests -p 'test_*.py'",
+    "test:dashboard-e2e": "node --experimental-strip-types apps/dashboard/tests/e2e/dashboard-build.ts && playwright test --config playwright.dashboard.config.ts",
     "db:migrate": "pnpm dev:prepare && node scripts/compose.mjs migrate",
     "db:migrate:test": "pnpm dev:prepare && node scripts/migration-test.mjs",
     "infra:config": "pnpm dev:prepare && node scripts/compose.mjs config",
@@ -35,6 +37,8 @@
     "infra:test-caddy": "node scripts/infra.mjs caddy",
     "infra:build-shared-payload": "node scripts/infra.mjs build-payload",
     "infra:verify-shared-payload": "node scripts/infra.mjs verify-payload",
+    "monitoring:build-host-payload": "node scripts/monitoring-payload.mjs build",
+    "monitoring:verify-host-payload": "node scripts/monitoring-payload.mjs verify",
     "release:build-application-payload": "node scripts/application-payload.mjs",
     "release:build-staging-manifest": "node scripts/staging-manifest.mjs",
     "release:build-staging-bundle": "node scripts/staging-release-bundle.mjs",
@@ -52,7 +56,7 @@
     "image:build": "node scripts/images.mjs build",
     "image:scan": "node scripts/images.mjs scan",
     "image:runtime-fixtures": "node scripts/images.mjs runtime-fixtures",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:integration && pnpm test:runtime-config && pnpm scan:secrets && pnpm test:policy && pnpm test:infra && pnpm infra:validate-templates && pnpm infra:verify-shared-payload && pnpm infra:config"
+    "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:integration && pnpm test:runtime-config && pnpm test:monitoring && pnpm scan:secrets && pnpm test:policy && pnpm test:infra && pnpm infra:validate-templates && pnpm infra:verify-shared-payload && pnpm infra:config"
   },
   "devDependencies": {
     "@commitlint/cli": "21.2.2",

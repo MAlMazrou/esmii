@@ -1,0 +1,11 @@
+[Unit]
+Description=Private production socket for the shared Esmii node_exporter
+
+[Socket]
+ListenStream=172.30.41.9:9100
+FreeBind=true
+NoDelay=true
+Service=esmii-node-exporter-production-proxy.service
+
+[Install]
+WantedBy=sockets.target

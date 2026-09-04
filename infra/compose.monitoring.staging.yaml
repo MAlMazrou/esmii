@@ -1,0 +1,161 @@
+x-dashboard-common: &dashboard-common
+  init: true
+  read_only: true
+  user: "10003:10003"
+  tmpfs:
+    - /tmp:size=32m,noexec,nosuid,nodev
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  restart: unless-stopped
+  mem_limit: 192m
+  pids_limit: 128
+  logging:
+    driver: local
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+x-prometheus-common: &prometheus-common
+  image: "@@PROMETHEUS_IMAGE@@"
+  user: "65534:65534"
+  read_only: true
+  tmpfs:
+    - /tmp:size=16m,noexec,nosuid,nodev
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  restart: unless-stopped
+  expose:
+    - "9090"
+  command:
+    - --config.file=/etc/prometheus/prometheus.yml
+    - --storage.tsdb.path=/prometheus
+    - --storage.tsdb.retention.time=7d
+    - --storage.tsdb.retention.size=1GB
+    - --query.timeout=10s
+    - --query.max-concurrency=4
+    - --web.listen-address=0.0.0.0:9090
+  healthcheck:
+    test:
+      - CMD
+      - /bin/promtool
+      - check
+      - ready
+      - --url=http://127.0.0.1:9090
+    interval: 30s
+    timeout: 10s
+    start_period: 20s
+    retries: 3
+  mem_limit: 256m
+  pids_limit: 128
+  logging:
+    driver: local
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  staging-dashboard-secret-init:
+    image: "@@STAGING_DASHBOARD_IMAGE@@"
+    init: true
+    read_only: true
+    user: "0:10003"
+    network_mode: none
+    tmpfs:
+      - /tmp:size=8m,noexec,nosuid,nodev
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: "no"
+    mem_limit: 64m
+    pids_limit: 32
+    secrets:
+      - source: staging_dashboard_auth_secret
+        target: dashboard_auth_secret
+    volumes:
+      - staging-dashboard-secrets:/run/dashboard-secrets
+    command:
+      - node
+      - -e
+      - >-
+        const fs=require('node:fs');process.umask(0o027);const source='/run/secrets/dashboard_auth_secret';const destination='/run/dashboard-secrets/dashboard_auth_secret';const temporary=destination+'.'+process.pid+'.tmp';const secret=fs.readFileSync(source);if(secret.length<32||secret.length>4096)throw new Error('dashboard auth secret has an invalid length');const handle=fs.openSync(temporary,'wx',0o440);try{fs.writeFileSync(handle,secret);fs.fsyncSync(handle);}finally{fs.closeSync(handle);}fs.renameSync(temporary,destination);fs.chmodSync(destination,0o440);const result=fs.statSync(destination);if(result.gid!==10003||(result.mode&0o777)!==0o440)throw new Error('dashboard auth secret handoff has unsafe ownership or mode');
+
+  staging-dashboard:
+    <<: *dashboard-common
+    image: "@@STAGING_DASHBOARD_IMAGE@@"
+    environment:
+      NODE_ENV: production
+      DASHBOARD_ENVIRONMENT: staging
+      DASHBOARD_ORIGIN: https://staging-dashboard.esmii.app
+      DASHBOARD_PEER_ORIGIN: https://dashboard.esmii.app
+      DASHBOARD_PROMETHEUS_URL: http://staging-prometheus:9090
+      DASHBOARD_PROMETHEUS_TIMEOUT_MS: "10000"
+      DASHBOARD_AUTH_DATABASE_FILE: /var/lib/esmii-dashboard/auth.sqlite
+      DASHBOARD_AUTH_SECRET_FILE: /run/secrets/dashboard_auth_secret
+      DASHBOARD_LOG_FILE: /var/lib/esmii-dashboard/logs/services.ndjson
+      DASHBOARD_LOG_MAX_BYTES: "20971520"
+      HOST: 0.0.0.0
+      PORT: "3000"
+    volumes:
+      - /var/lib/esmii/monitoring/staging/auth:/var/lib/esmii-dashboard
+      - /var/lib/esmii/monitoring/staging/logs:/var/lib/esmii-dashboard/logs:ro
+      - staging-dashboard-secrets:/run/secrets:ro
+    expose:
+      - "3000"
+    networks:
+      staging-monitoring-edge:
+        ipv4_address: 172.30.40.2
+      staging-monitoring-data:
+        ipv4_address: 172.30.40.10
+    depends_on:
+      staging-dashboard-secret-init:
+        condition: service_completed_successfully
+      staging-prometheus:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/healthz').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  staging-prometheus:
+    <<: *prometheus-common
+    volumes:
+      - ./monitoring/prometheus/staging/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/prometheus/staging/rules:/etc/prometheus/rules:ro
+      - /var/lib/esmii/monitoring/staging/prometheus:/prometheus
+    networks:
+      staging-monitoring-data:
+        ipv4_address: 172.30.40.11
+
+networks:
+  staging-monitoring-edge:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.40.0/29
+          gateway: 172.30.40.1
+  staging-monitoring-data:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.40.8/29
+          gateway: 172.30.40.9
+volumes:
+  staging-dashboard-secrets:
+    name: esmii-monitoring-staging-dashboard-secret
+    labels:
+      app.esmii.component: dashboard-secret-handoff
+      app.esmii.environment: staging
+secrets:
+  staging_dashboard_auth_secret:
+    file: /etc/esmii/monitoring/staging/dashboard-auth-secret

@@ -1,0 +1,122 @@
+groups:
+  - name: esmii-host-recording
+    interval: 30s
+    rules:
+      - record: esmii:host_cpu_utilization:ratio5m
+        expr: 1 - avg without (cpu, mode) (rate(node_cpu_seconds_total{mode="idle"}[5m]))
+      - record: esmii:host_memory_utilization:ratio
+        expr: 1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)
+      - record: esmii:host_load_per_cpu:ratio5m
+        expr: node_load5 / count without (cpu, mode) (node_cpu_seconds_total{mode="idle"})
+      - record: esmii:host_network_receive_bytes_per_second:rate5m
+        expr: sum without (device) (rate(node_network_receive_bytes_total{device!~"lo|veth.*|br-.*|docker.*"}[5m]))
+      - record: esmii:host_network_transmit_bytes_per_second:rate5m
+        expr: sum without (device) (rate(node_network_transmit_bytes_total{device!~"lo|veth.*|br-.*|docker.*"}[5m]))
+
+  - name: esmii-runtime-alerts
+    interval: 30s
+    rules:
+      - alert: EsmiiNodeExporterUnavailable
+        expr: up{job="node"} == 0
+        for: 90s
+        labels:
+          severity: critical
+        annotations:
+          summary: The private Esmii node exporter is unavailable.
+      - alert: EsmiiContainerMissingOrStopped
+        expr: esmii_container_expected == 1 and esmii_container_running == 0
+        for: 90s
+        labels:
+          severity: critical
+        annotations:
+          summary: An expected Esmii container is not running.
+      - alert: EsmiiContainerUnhealthy
+        expr: esmii_container_health_status == 3
+        for: 90s
+        labels:
+          severity: critical
+        annotations:
+          summary: An Esmii container reports an unhealthy Docker healthcheck.
+      - alert: EsmiiContainerOomKilled
+        expr: esmii_container_oom_killed == 1
+        labels:
+          severity: critical
+        annotations:
+          summary: An Esmii container was OOM-killed.
+      - alert: EsmiiContainerUnexpectedRestart
+        expr: esmii_container_restart_count_rolling_24h >= 1
+        labels:
+          severity: warning
+        annotations:
+          summary: An Esmii container restarted unexpectedly in the last 24 hours.
+      - alert: EsmiiWorkerHeartbeatStale
+        expr: esmii_worker_heartbeat_timestamp_seconds > 0 and esmii_worker_heartbeat_age_seconds > 180
+        labels:
+          severity: warning
+        annotations:
+          summary: An Esmii worker heartbeat is more than three minutes old.
+      - alert: EsmiiWorkerHeartbeatMissing
+        expr: esmii_worker_heartbeat_timestamp_seconds == 0
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: An Esmii worker has not emitted an observable heartbeat.
+      - alert: EsmiiCollectorStale
+        expr: (time() - esmii_monitoring_collector_last_success_timestamp_seconds > 90) or absent_over_time(esmii_monitoring_collector_last_success_timestamp_seconds[90s])
+        labels:
+          severity: critical
+        annotations:
+          summary: The host metrics collector has stopped updating.
+      - alert: EsmiiHostMemoryWarning
+        expr: node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes < 0.20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Shared VPS available memory has remained below 20 percent.
+      - alert: EsmiiHostSwapActive
+        expr: node_memory_SwapTotal_bytes - node_memory_SwapFree_bytes > 134217728
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Shared VPS swap use has remained above 128 MiB.
+      - alert: EsmiiHostCpuWarning
+        expr: esmii:host_cpu_utilization:ratio5m > 0.85
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Shared VPS CPU utilization has remained above 85 percent.
+      - alert: EsmiiHostLoadWarning
+        expr: node_load1 > 4
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Shared VPS one-minute load average has remained above four.
+      - alert: EsmiiHostDiskWarning
+        expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}) >= 0.60) and (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}) < 0.80)
+        labels:
+          severity: warning
+        annotations:
+          summary: A shared VPS filesystem is above 60 percent usage.
+      - alert: EsmiiHostDiskCritical
+        expr: 1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs"}) >= 0.80
+        labels:
+          severity: critical
+        annotations:
+          summary: A shared VPS filesystem is above 80 percent usage.
+      - alert: EsmiiHostInodeWarning
+        expr: (1 - (node_filesystem_files_free{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_files{fstype!~"tmpfs|overlay|squashfs"}) >= 0.60) and (1 - (node_filesystem_files_free{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_files{fstype!~"tmpfs|overlay|squashfs"}) < 0.80)
+        labels:
+          severity: warning
+        annotations:
+          summary: A shared VPS filesystem is above 60 percent inode usage.
+      - alert: EsmiiHostInodeCritical
+        expr: 1 - (node_filesystem_files_free{fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_files{fstype!~"tmpfs|overlay|squashfs"}) >= 0.80
+        labels:
+          severity: critical
+        annotations:
+          summary: A shared VPS filesystem is above 80 percent inode usage.

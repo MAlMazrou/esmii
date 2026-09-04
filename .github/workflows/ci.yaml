@@ -91,6 +91,8 @@ jobs:
         run: corepack pnpm typecheck
       - name: Run unit and package tests
         run: corepack pnpm test
+      - name: Run monitoring collector and isolation tests
+        run: corepack pnpm test:monitoring
       - name: Scan committed files for secrets
         run: corepack pnpm scan:secrets
       - name: Enforce repository and branch policy
@@ -207,7 +209,20 @@ jobs:
         run: |
           corepack pnpm infra:validate-templates
           corepack pnpm infra:verify-shared-payload
+          corepack pnpm monitoring:verify-host-payload -- --revision "${GITHUB_SHA}"
           corepack pnpm test:infra
+      - name: Build the closed Prompt-07 monitoring host payload
+        run: >-
+          corepack pnpm monitoring:build-host-payload --
+          --revision "${GITHUB_SHA}"
+          --output .local/prompt07/monitoring-host-payload
+      - name: Upload the monitoring host payload and detached inventory
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: esmii-monitoring-host-payload-${{ github.sha }}
+          path: .local/prompt07/monitoring-host-payload/*
+          if-no-files-found: error
+          retention-days: 14
       - name: Render and validate all sealed host fixtures
         run: |
           corepack pnpm infra:test-render -- --fixture staging
@@ -243,9 +258,9 @@ jobs:
         run: corepack enable
       - name: Install from the frozen lockfile
         run: corepack pnpm install --frozen-lockfile
-      - name: Build environment-neutral images with the released app version
+      - name: Build environment-neutral web, server, and dashboard images once
         run: corepack pnpm image:build
-      - name: Inspect runtime users and embedded sentinels
+      - name: Inspect all runtime users, OCI labels, and embedded sentinels
         run: corepack pnpm image:scan
       - name: Run dual-runtime fixtures against the exact image identities
         run: corepack pnpm image:runtime-fixtures
@@ -267,6 +282,15 @@ jobs:
           vuln-type: os,library
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+      - name: Scan the dashboard image for high and critical vulnerabilities
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: esmii/dashboard:prompt07
+          format: table
+          exit-code: "1"
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
       - name: Generate the web SBOM
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
         with:
@@ -281,10 +305,17 @@ jobs:
           format: spdx-json
           output-file: sbom-server.spdx.json
           upload-artifact: false
+      - name: Generate the dashboard SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: esmii/dashboard:prompt07
+          format: spdx-json
+          output-file: sbom-dashboard.spdx.json
+          upload-artifact: false
       - name: Upload SBOMs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: prompt-02-sboms
+          name: esmii-image-sboms
           path: sbom-*.spdx.json
           if-no-files-found: error
           retention-days: 14
@@ -295,14 +326,17 @@ jobs:
             (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main'))
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DASHBOARD_IMAGE: ghcr.io/malmazrou/esmii-dashboard:sha-${{ github.sha }}
           SERVER_IMAGE: ghcr.io/malmazrou/esmii-server:sha-${{ github.sha }}
           WEB_IMAGE: ghcr.io/malmazrou/esmii-web:sha-${{ github.sha }}
         run: |
           printf '%s' "${GHCR_TOKEN}" | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
           docker tag esmii/web:prompt02 "${WEB_IMAGE}"
           docker tag esmii/server:prompt02 "${SERVER_IMAGE}"
+          docker tag esmii/dashboard:prompt07 "${DASHBOARD_IMAGE}"
           docker push "${WEB_IMAGE}"
           docker push "${SERVER_IMAGE}"
+          docker push "${DASHBOARD_IMAGE}"
 
   end-to-end:
     name: End-to-end smoke
@@ -331,6 +365,8 @@ jobs:
         run: corepack pnpm infra:up
       - name: Run the browser smoke test
         run: corepack pnpm test:e2e
+      - name: Run the monitoring dashboard browser acceptance test
+        run: corepack pnpm test:dashboard-e2e
       - name: Stop the development stack without deleting volumes
         if: always()
         run: corepack pnpm infra:down
@@ -365,6 +401,8 @@ jobs:
         run: printf '%s' "${GHCR_TOKEN}" | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
       - name: Advance only the staging dev tags
         env:
+          DASHBOARD_CANDIDATE: ghcr.io/malmazrou/esmii-dashboard:sha-${{ github.sha }}
+          DASHBOARD_STAGING: ghcr.io/malmazrou/esmii-dashboard:dev
           SERVER_CANDIDATE: ghcr.io/malmazrou/esmii-server:sha-${{ github.sha }}
           SERVER_STAGING: ghcr.io/malmazrou/esmii-server:dev
           WEB_CANDIDATE: ghcr.io/malmazrou/esmii-web:sha-${{ github.sha }}
@@ -372,8 +410,10 @@ jobs:
         run: |
           docker buildx imagetools create --tag "${WEB_STAGING}" "${WEB_CANDIDATE}"
           docker buildx imagetools create --tag "${SERVER_STAGING}" "${SERVER_CANDIDATE}"
+          docker buildx imagetools create --tag "${DASHBOARD_STAGING}" "${DASHBOARD_CANDIDATE}"
           docker buildx imagetools inspect "${WEB_STAGING}"
           docker buildx imagetools inspect "${SERVER_STAGING}"
+          docker buildx imagetools inspect "${DASHBOARD_STAGING}"
 
   publish-production:
     name: Publish verified main candidate for production
@@ -405,6 +445,8 @@ jobs:
         run: printf '%s' "${GHCR_TOKEN}" | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
       - name: Advance only the production main tags
         env:
+          DASHBOARD_CANDIDATE: ghcr.io/malmazrou/esmii-dashboard:sha-${{ github.sha }}
+          DASHBOARD_PRODUCTION: ghcr.io/malmazrou/esmii-dashboard:main
           SERVER_CANDIDATE: ghcr.io/malmazrou/esmii-server:sha-${{ github.sha }}
           SERVER_PRODUCTION: ghcr.io/malmazrou/esmii-server:main
           WEB_CANDIDATE: ghcr.io/malmazrou/esmii-web:sha-${{ github.sha }}
@@ -412,5 +454,7 @@ jobs:
         run: |
           docker buildx imagetools create --tag "${WEB_PRODUCTION}" "${WEB_CANDIDATE}"
           docker buildx imagetools create --tag "${SERVER_PRODUCTION}" "${SERVER_CANDIDATE}"
+          docker buildx imagetools create --tag "${DASHBOARD_PRODUCTION}" "${DASHBOARD_CANDIDATE}"
           docker buildx imagetools inspect "${WEB_PRODUCTION}"
           docker buildx imagetools inspect "${SERVER_PRODUCTION}"
+          docker buildx imagetools inspect "${DASHBOARD_PRODUCTION}"

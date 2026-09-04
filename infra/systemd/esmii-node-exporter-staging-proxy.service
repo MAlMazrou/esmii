@@ -1,0 +1,30 @@
+[Unit]
+Description=Proxy the private staging monitoring socket to loopback-only node_exporter
+After=esmii-node-exporter.service
+Requires=esmii-node-exporter.service
+
+[Service]
+Type=notify
+DynamicUser=true
+Slice=esmii-node-exporter.slice
+ExecStart=/lib/systemd/systemd-socket-proxyd 127.0.0.1:9100
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_INET AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+IPAddressDeny=any
+IPAddressAllow=127.0.0.1/32
+IPAddressAllow=172.30.40.11/32
+TasksMax=16

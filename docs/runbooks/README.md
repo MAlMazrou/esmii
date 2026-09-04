@@ -1,6 +1,6 @@
-# Prompt 04 runbooks
+# Infrastructure and operations runbooks
 
-These runbooks describe later approved host work. Prompt 04 did not connect to Netcup, Cloudflare, GitHub, GHCR, an offsite backup repository, or any VPS.
+These runbooks describe separately gated host work. Repository definitions do not themselves authorize a Netcup, Cloudflare, GitHub, GHCR, offsite-backup, or VPS action. Prompt 07 adds monitoring repository guidance while keeping its live audit/apply, secrets, Worker/DNS/TLS, staging soak, production activation, and off-host outage-monitor changes as external gates.
 
 - [Ubuntu custom ISO](ubuntu-custom-iso.md)
 - [Prompt 05 remote check plan](prompt-05-remote-check-plan.md)
@@ -14,6 +14,7 @@ These runbooks describe later approved host work. Prompt 04 did not connect to N
 - [Disk pressure](disk-pressure.md)
 - [OOM and memory pressure](oom.md)
 - [Reconciler failure](reconciler-failure.md)
-- [Combined resource budget](resource-budget.md)
+- [Combined application and Prompt 07 monitoring resource budget](resource-budget.md)
+- [Custom monitoring dashboard rollout and rollback](monitoring-dashboard.md)
 
 The canonical architecture and gate rules remain in `docs/infrastructure.md`, `docs/vps-setup.md`, and `docs/deployment.md`.

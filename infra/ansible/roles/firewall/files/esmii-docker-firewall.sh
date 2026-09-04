@@ -7,7 +7,7 @@ ensure_jump() {
   "$binary" -C DOCKER-USER -j ESMII-INGRESS 2>/dev/null || "$binary" -I DOCKER-USER 1 -j ESMII-INGRESS
   "$binary" -F ESMII-INGRESS
   "$binary" -A ESMII-INGRESS -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
-  for network_id in $(/usr/bin/docker network ls --filter 'name=^esmii_' --format '{{.ID}}'); do
+  for network_id in $(/usr/bin/docker network ls --filter 'label=com.docker.compose.project=esmii' --format '{{.ID}}'); do
     driver=$(/usr/bin/docker network inspect --format '{{.Driver}}' "$network_id")
     [ "$driver" = bridge ] || continue
     bridge=$(/usr/bin/docker network inspect --format '{{index .Options "com.docker.network.bridge.name"}}' "$network_id")

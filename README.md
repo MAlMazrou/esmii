@@ -2,7 +2,7 @@
 
 This repository package defines how an implementation agent should start a small, self-hosted SaaS application on one Netcup server. The selected launch host is an x86 Netcup RS 1000 G12 with 4 dedicated cores, 8 GB ECC RAM, 256 GB NVMe, and IPv4 plus IPv6 connectivity. Staging is deployed from successful `dev` CI; production is deployed independently from tagged, versioned `main` CI, with immutable image identity and isolated runtime state in both environments. The package contains the agreed requirements, architectural constraints, decisions, execution rules, and numbered implementation sequence.
 
-> **Current status: Prompt 05, Prompt 06's initial public application gate, and the separately approved self-hosted mail gate are complete.** Successful `dev` CI runs automatically update the isolated staging application at `https://staging.esmii.app`; accepted `main` changes are semantically versioned and tagged before successful CI updates the isolated public production application at `https://esmii.app`. Staging permits exactly the two user-selected tester addresses for both email and Google sign-in, retains `noindex`, and delivers account mail through its own Stalwart sender/credential; the exact tester list stays root-only outside Git. Production Google OAuth, offsite-backup/restore acceptance, external monitoring acceptance, and the final hardened-production acceptance remain disabled until their separate requirements are completed.
+> **Current status: Prompt 05, Prompt 06's initial public application gate, the separately approved self-hosted mail gate, and Prompt 07's repository implementation are complete.** Successful `dev` CI runs automatically update the isolated staging application at `https://staging.esmii.app`; accepted `main` changes are semantically versioned and tagged before successful CI updates the isolated public production application at `https://esmii.app`. The release pipeline also builds and publishes one environment-neutral dashboard image, but no monitoring host service, operator secret, Worker/DNS/TLS route, staging soak, production dashboard, or off-host outage monitor is activated by repository completion. Staging permits exactly the two user-selected tester addresses for both email and Google sign-in, retains `noindex`, and delivers account mail through its own Stalwart sender/credential; the exact tester list stays root-only outside Git. Production Google OAuth, offsite-backup/restore acceptance, external monitoring acceptance, and the final hardened-production acceptance remain disabled until their separate requirements are completed.
 
 Tokens written as `<SEMANTIC_NAME>` are unresolved placeholders, not sample values, and must never be copied into production unchanged. Only rows marked `REQUIRED INPUT` in `docs/decisions.md` must be supplied or approved by the user. SHA/digest/release/evidence/DKIM and similar placeholders are generated, verified, and recorded by the prompt that names them; the agent must not ask the user to invent those values.
 
@@ -48,7 +48,7 @@ When instructions disagree, use this order:
 
 Completing one numbered prompt does **not** authorize the agent to begin the next prompt. The user must explicitly continue the sequence.
 
-The six numbered prompts implement only the generic core. Draft product/design/engineering templates are expected and do not block those prompts. Even an approved product document does not authorize a business module under a generic-core prompt; product implementation requires a later, separately approved prompt.
+The first six numbered prompts implement only the generic core. Prompt 07 is the separately approved infrastructure-monitoring extension and does not authorize a business module. Draft product/design/engineering templates are expected and do not block the generic-core prompts. Even an approved product document does not authorize a business module under a generic-core prompt; product implementation requires a later, separately approved prompt.
 
 ### Exact prompt sequence
 
@@ -58,16 +58,17 @@ The six numbered prompts implement only the generic core. Draft product/design/e
 4. [`docs/prompts/04-prepare-vps.md`](./docs/prompts/04-prepare-vps.md)
 5. [`docs/prompts/05-provision-vps-and-deploy-staging.md`](./docs/prompts/05-provision-vps-and-deploy-staging.md)
 6. [`docs/prompts/06-promote-staging-to-production.md`](./docs/prompts/06-promote-staging-to-production.md)
+7. [`docs/prompts/07-build-monitoring-dashboard.md`](./docs/prompts/07-build-monitoring-dashboard.md)
 
-For product definition, [`docs/prompts/product-discovery.md`](./docs/prompts/product-discovery.md) is an optional planning aid. It is not a seventh implementation prompt and grants no code or external-action authority. Use it before Prompt 02 if the initial application shell must already reflect product branding/navigation; otherwise complete the neutral core and approve product documents before the first business-module prompt.
+For product definition, [`docs/prompts/product-discovery.md`](./docs/prompts/product-discovery.md) is an optional planning aid, not part of the numbered implementation sequence, and grants no code or external-action authority. Use it before Prompt 02 if the initial application shell must already reflect product branding/navigation; otherwise complete the neutral core and approve product documents before the first business-module prompt.
 
 ### Branch and deployment model
 
 - Normal development and feature pull requests land on the protected `dev` branch.
-- A successful `dev` candidate is built once in GitHub Actions, pushed to GHCR by immutable digest, and deployed to the isolated staging environment.
+- A successful `dev` candidate builds the environment-neutral web, server, and dashboard images once in GitHub Actions and pushes them to GHCR by immutable digest. The existing web/server pair is deployed to the isolated staging application; monitoring activation remains separately gated.
 - Under the active Prompt 05 staging exception, the VPS polls the current `dev` SHA and its successful CI run over outbound HTTPS, prefers GHCR digests, and can build that exact successful SHA locally while anonymous GHCR pull is unavailable. GitHub-hosted runners do not SSH to the host.
 - Every accepted `main` change first creates a bot-owned semantic release commit and immutable `vX.Y.Z` tag; only that versioned revision is dispatched to CI.
-- A successful versioned `main` CI run publishes immutable full-SHA images and advances only the `:main` convenience pointers.
+- A successful versioned `main` CI run publishes immutable full-SHA web, server, and dashboard images and advances only their `:main` convenience pointers.
 - The VPS production timer polls outbound, resolves the main pointers to immutable digests, verifies source/revision labels, migrates and health-checks the isolated production runtime, and restores the preceding production overlay if activation fails.
 - `main` is never force-moved backward. A failed activation leaves the prior runtime serving while a reviewed fix or forward revert is prepared.
 - There are no long-lived `staging` or `production` branches. GitHub Environments, release manifests, credentials, data, domains, and Compose overlays provide environment separation.
