@@ -145,11 +145,21 @@ ensure_directories() {
   install -d -o root -g root -m 0700 "${STATE_ROOT}" "${ACTIVE_ROOT}"
   install -d -o root -g root -m 0755 \
     "${MONITORING_ROOT}/staging" "${MONITORING_ROOT}/production"
-  install -d -o root -g 10003 -m 0750 \
+  # GNU install resolves -o/-g arguments as account names. The dashboard and
+  # Prometheus identities deliberately exist only inside their containers, so
+  # create these host directories first and apply their numeric ownership with
+  # chown, which accepts container-only UID/GID values.
+  install -d -o root -g root -m 0750 \
     "${MONITORING_ROOT}/staging/logs" "${MONITORING_ROOT}/production/logs"
-  install -d -o 10003 -g 10003 -m 0700 \
+  chown root:10003 \
+    "${MONITORING_ROOT}/staging/logs" "${MONITORING_ROOT}/production/logs"
+  install -d -o root -g root -m 0700 \
     "${MONITORING_ROOT}/staging/auth" "${MONITORING_ROOT}/production/auth"
-  install -d -o 65534 -g 65534 -m 0700 \
+  chown 10003:10003 \
+    "${MONITORING_ROOT}/staging/auth" "${MONITORING_ROOT}/production/auth"
+  install -d -o root -g root -m 0700 \
+    "${MONITORING_ROOT}/staging/prometheus" "${MONITORING_ROOT}/production/prometheus"
+  chown 65534:65534 \
     "${MONITORING_ROOT}/staging/prometheus" "${MONITORING_ROOT}/production/prometheus"
   install -d -o root -g root -m 0700 \
     "${SECRET_ROOT}" "${SECRET_ROOT}/staging" "${SECRET_ROOT}/production"
