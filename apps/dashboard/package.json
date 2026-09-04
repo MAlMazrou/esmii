@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "next build",
-    "build:operator-cli": "esbuild scripts/operator-auth.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/operator-auth.mjs --log-level=warning",
+    "build:operator-cli": "esbuild scripts/operator-auth.ts --bundle --platform=node --target=node24 --format=cjs --outfile=dist/operator-auth.cjs --log-level=warning",
     "dev": "next dev --hostname 127.0.0.1 --port 3010",
     "start": "next start --hostname 0.0.0.0 --port 3000",
     "lint": "eslint . --max-warnings 0",

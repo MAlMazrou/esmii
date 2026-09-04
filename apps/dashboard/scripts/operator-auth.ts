@@ -391,6 +391,6 @@ async function main(): Promise<void> {
   }
 }
 
-await main().catch((error: unknown) => {
+void main().catch((error: unknown) => {
   fail(error instanceof Error ? error.message : "Operator authentication command failed");
 });
