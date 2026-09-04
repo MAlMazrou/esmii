@@ -222,6 +222,19 @@ class RuntimeInvariantTests(unittest.TestCase):
         self.assertNotIn("--collector.systemd", exporter)
         self.assertNotIn("Requires=docker.service", exporter)
         self.assertNotIn("After=docker.service", exporter)
+        self.assertIn(
+            "--collector.textfile.directory=/run/esmii-node-exporter-textfiles",
+            exporter,
+        )
+        self.assertIn(
+            "BindReadOnlyPaths=/var/lib/esmii/monitoring/shared/textfiles:/run/esmii-node-exporter-textfiles",
+            exporter,
+        )
+        self.assertNotIn(
+            "--collector.textfile.directory=/var/lib/esmii/monitoring/shared/textfiles",
+            exporter,
+        )
+        self.assertIn("RestrictAddressFamilies=AF_INET AF_NETLINK AF_UNIX", exporter)
 
         for environment, source, peer_source in (
             ("staging", "172.30.40.11/32", "172.30.41.11/32"),
