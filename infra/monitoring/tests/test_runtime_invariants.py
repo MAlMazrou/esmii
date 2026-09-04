@@ -230,6 +230,10 @@ class RuntimeInvariantTests(unittest.TestCase):
         self.assertIn("collector-install.sha256", installer)
         self.assertIn("Refusing to replace shared collector code", installer)
         self.assertIn("unapproved ${peer_environment} exporter path became active", installer)
+        self.assertNotRegex(installer, r"install -d[^\n]*-(?:o|g) (?:10003|65534)")
+        self.assertIn("chown root:10003", installer)
+        self.assertIn("chown 10003:10003", installer)
+        self.assertIn("chown 65534:65534", installer)
         self.assertLess(installer.index("if [[ ${action} == install-shared ]]"), installer.index("install -o root -g root -m 0644"))
         self.assertNotRegex(installer, r"ufw allow[^\n]*(?:from any|to any)[^\n]*9100")
 
