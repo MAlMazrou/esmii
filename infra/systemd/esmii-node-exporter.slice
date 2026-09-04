@@ -1,0 +1,6 @@
+[Unit]
+Description=Aggregate resource ceiling for node_exporter and its private socket proxy
+
+[Slice]
+MemoryMax=64M
+TasksMax=96

@@ -7,13 +7,16 @@
 
 ## 1. The final recommendation
 
-**Current production gates (30 August–1 September 2026):** the user authorized public `esmii.app` immediately and CI-gated outbound pull behavior for both branch environments. A `dev` candidate may build directly for staging; every accepted `main` change must first receive its bot-owned semantic release commit and immutable `vX.Y.Z` tag before production CI is dispatched. Production uses separate PostgreSQL, Valkey, media, credentials, networks, and mail state. On 31 August the user separately required a self-hosted mail server; Stalwart was activated and a real magic-link canary was delivered. Staging has its own sender, credential, and internal submission network for exactly two user-selected testers while retaining private Mailpit for operator capture. Production Google OAuth, offsite-backup/restore acceptance, external monitoring acceptance, and final hardened-production acceptance remain later gates. These current delivery decisions supersede older manual/restricted or capture-only wording below where they conflict; the isolation and eventual hardened-service requirements remain.
+**Current production gates (30 August–2 September 2026):** the user authorized public `esmii.app` immediately and CI-gated outbound pull behavior for both branch environments. A `dev` candidate may build directly for staging; every accepted `main` change must first receive its bot-owned semantic release commit and immutable `vX.Y.Z` tag before production CI is dispatched. Production uses separate PostgreSQL, Valkey, media, credentials, networks, and mail state. On 31 August the user separately required a self-hosted mail server; Stalwart was activated and a real magic-link canary was delivered. Staging has its own sender, credential, and internal submission network for exactly two user-selected testers while retaining private Mailpit for operator capture. On 2 September the user authorized Prompt 07 repository implementation for a bounded custom monitoring profile. No live monitoring secret, VPS, Worker/DNS, TLS, staging/production activation, soak acceptance, or off-host-monitor action is implied. Production Google OAuth, offsite-backup/restore acceptance, external outage-monitor acceptance, and final hardened-production acceptance remain later gates. These current delivery decisions supersede older manual/restricted, capture-only, and blanket-Prometheus-deferral wording below where they conflict; the isolation and eventual hardened-service requirements remain.
 
-Start with one pnpm monorepo containing the frontend, modular-monolith backend, worker/migration entrypoints, shared packages, infrastructure, tests, CI/CD, and runbooks. Deploy with Docker Compose. The first remote release runs reduced staging; the next approved release adds production while retaining staging. The full 8 GB composition has one shared Caddy plus six staging services and six production services:
+Start with one pnpm monorepo containing the customer frontend, modular-monolith backend, custom monitoring dashboard, worker/migration entrypoints, shared packages, infrastructure, tests, CI/CD, and runbooks. Deploy with Docker Compose. The first remote release runs reduced staging; the next approved release adds production while retaining staging. Prompt 07 adds its monitoring plane only through later explicit external gates. The full 8 GB composition has one shared Caddy, six application services per environment, and two monitoring containers per environment plus three bounded host processes:
 
 1. shared Caddy;
 2. staging web, API, worker, PostgreSQL, Valkey, retained private Mailpit, and the separately credentialed Stalwart submission path used for allowlisted testers;
 3. production web, API, worker, PostgreSQL, Valkey, and Stalwart.
+4. staging dashboard and staging Prometheus;
+5. production dashboard and production Prometheus; and
+6. one host node_exporter plus transient root metrics and log collectors.
 
 Migration entrypoints are one-shot jobs, not long-running containers. If a media feature is later approved, files live in environment-specific host filesystem roots with physically separate public and private trees. PostgreSQL stores metadata and ownership, not ordinary media bytes. SeaweedFS or another S3-compatible service remains deferred until measured product need and an approved resource plan; starting with 8 GB is not permission to enable it.
 
@@ -22,7 +25,7 @@ This is the important distinction:
 - It is **scalable within one host**, because the VPS can be enlarged and stateless containers can be replicated.
 - It is **not highly available**, because the one VPS, one NVMe disk, one network, and one public IP remain a single failure domain.
 
-The architecture deliberately does not include Kubernetes, Kong, APISIX, RabbitMQ, Kafka, a separate realtime server, a separate identity server, Elasticsearch, or a heavyweight monitoring stack. None solves a current problem in a small, single-host application.
+The architecture deliberately does not include Kubernetes, Kong, APISIX, RabbitMQ, Kafka, a separate realtime server, a separate customer identity server, Elasticsearch, Grafana, Loki, cAdvisor, or a tracing cluster. Prompt 07's two tightly retained Prometheus instances, shared node_exporter, fixed collectors, and custom dashboard are the complete approved on-host monitoring exception.
 
 ### Conservative launch profile for the 8 GB VPS
 
@@ -35,7 +38,7 @@ The architecture deliberately does not include Kubernetes, Kong, APISIX, RabbitM
 - Keep PostgreSQL pools and Valkey memory small, and apply conservative Sharp/libvips limits.
 - Add modest emergency swap, but treat normal-load swapping as a capacity incident.
 - Send encrypted production backups to a repository outside Netcup and monitor externally.
-- Keep SeaweedFS, ClamAV, Prometheus/Grafana, video transcoding, API replicas, public mailbox mode, Kubernetes, and additional brokers disabled until measured need and separate approval.
+- Add only the exact 1,088 MiB Prompt 07 monitoring profile after its staged external gates; keep Grafana, Loki, cAdvisor, tracing, SeaweedFS, ClamAV, video transcoding, API replicas, public mailbox mode, Kubernetes, and additional brokers disabled.
 - Preserve at least 20% disk space and enough RAM/page-cache headroom for migrations, backup/restore, and media bursts.
 
 Before public launch, run representative combined staging+production load covering SSR, auth, both PostgreSQL/Valkey pairs, outbox/workers, Caddy, and transactional mail. Investigate sustained RAM above 70%; sustained 75%+, normal-load swap, or any OOM kill is an immediate resize/optimization gate. Do not weaken isolation or security to fit the host.
@@ -60,6 +63,8 @@ flowchart TB
         Caddy[Shared Caddy: TLS, HTTP gateway, WebSocket proxy]
         Reconciler[Root-owned outbound deployment reconciler]
         Timers[systemd timers: backup and maintenance]
+        NodeExporter[Host node_exporter: private listeners only]
+        Collectors[Root metrics and sanitized-log collectors]
 
         subgraph Staging[Isolated staging]
           SWeb[staging-web]
@@ -69,6 +74,8 @@ flowchart TB
           SValkey[(staging-valkey)]
           SMail[staging-mailpit]
           SMedia[(staging media: public/private)]
+          SDashboard[staging-dashboard: separate Better Auth realm]
+          SPrometheus[(staging-prometheus: 7d/1GB)]
         end
 
         subgraph Production[Isolated production]
@@ -79,6 +86,8 @@ flowchart TB
           PValkey[(production-valkey)]
           PMail[production-stalwart]
           PMedia[(production media: public/private)]
+          PDashboard[production-dashboard: separate Better Auth realm]
+          PPrometheus[(production-prometheus: 7d/1GB)]
         end
 
         HostPolicy --> Caddy
@@ -86,7 +95,16 @@ flowchart TB
         Caddy --> SAPI
         Caddy --> PWeb
         Caddy --> PAPI
+        Caddy --> SDashboard
+        Caddy --> PDashboard
         Admin -->|private listener; never Caddy| PMail
+        SDashboard -->|fixed server queries| SPrometheus
+        PDashboard -->|fixed server queries| PPrometheus
+        SPrometheus --> NodeExporter
+        PPrometheus --> NodeExporter
+        Collectors -->|environment textfiles| NodeExporter
+        Collectors -->|bounded sanitized snapshots| SDashboard
+        Collectors -->|bounded sanitized snapshots| PDashboard
 
         SAPI --> SPG
         SAPI --> SValkey
@@ -132,6 +150,7 @@ flowchart TB
 9. Valkey holds disposable cache/rate-limit state and the narrow worker-to-API invalidation channel; it later coordinates Socket.IO replicas.
 10. The worker submits email to Stalwart and processes media.
 11. Socket.IO tells clients that something changed; clients refetch authoritative data from the API.
+12. An independently authenticated dashboard instance uses only fixed server-side query templates against its environment Prometheus and a read-only sanitized log snapshot. The browser never reaches Prometheus, node_exporter, Docker, or a collector directly.
 
 ## 3. Technology stack
 
@@ -153,6 +172,10 @@ The version numbers below are a dated implementation baseline, not permission to
 | Queue and scheduler | application outbox + pg-boss | 12.28.0 / schema 38 | The API writes only its own outbox; the worker owns queue runtime access and a separate migration command owns pg-boss DDL |
 | Realtime | Socket.IO | current supported 4.x patch | Runs in Fastify now; Valkey adapter can be added before API replica 2 |
 | HTTP edge | Caddy | 2.11.4 baseline | Automatic TLS, HTTP reverse proxy, WebSocket proxy, headers, compression, and logs |
+| Monitoring UI | Custom `@esmii/dashboard` Next.js application | same pinned Node/Next baseline | Branded operator interface with server-side Prometheus adapters; no Grafana or raw metrics UI |
+| Monitoring auth | Separate Better Auth password + TOTP realms | same pinned Better Auth baseline | Isolated host-only operator sessions/SQLite audit state with no customer account or organization authority |
+| Metrics | Prometheus ×2 + host node_exporter ×1 | exact tested/pinned releases | Environment-local time series plus shared VPS metrics; seven-day/1 GB retention within a 1.25 GB disk allowance per environment and no public listeners |
+| Host collection | Fixed root metrics/log collectors | repository-owned Python/systemd | Supplies allowlisted Docker/systemd facts and bounded sanitized warning/error snapshots without a Docker socket in the dashboard |
 | Mail | Stalwart | 0.16.19 | Low-volume transactional/account mail plus named operational mailboxes only; staging uses a separate sender/credential for allowlisted testers, development uses Mailpit, and Netcup bulk/marketing mail is excluded |
 | Media processing | Sharp/libvips | pinned | Streaming image validation, re-encoding, metadata stripping, and variants |
 | Object storage | Local filesystem first; SeaweedFS optional | pin tested release | Local storage saves RAM now; SeaweedFS supplies an S3 endpoint later |
@@ -221,10 +244,11 @@ Kong or APISIX becomes useful when there are multiple independently deployed pub
 
 Keep the frontend, backend, workers, database migrations, shared packages, infrastructure, tests, CI/CD, and runbooks in **one monorepo**. The monorepo is the complete reproducible recipe for the system.
 
-One repository does not mean one container. Production still uses separate service containers and trust boundaries. The repository builds two application images:
+One repository does not mean one container. Production still uses separate service containers and trust boundaries. The repository builds three application images:
 
 - a web image;
-- one server image reused by API, worker, and migration services.
+- one server image reused by API, worker, and migration services; and
+- one environment-neutral monitoring-dashboard image instantiated with separate staging/production runtime configuration and operator realms.
 
 Caddy, PostgreSQL, Valkey, Stalwart, and optional SeaweedFS continue to use their separately pinned upstream images.
 
@@ -242,26 +266,32 @@ myapp/
 │   │   ├── Dockerfile
 │   │   └── package.json
 │   │
-│   └── server/
-│       ├── src/
-│       │   ├── entrypoints/
-│       │   │   ├── http.ts              # Fastify + Better Auth + Socket.IO
-│       │   │   ├── worker.ts            # pg-boss consumers
-│       │   │   └── migrate.ts           # One-shot migrations
-│       │   ├── app.ts                    # Fastify composition root
-│       │   ├── plugins/
-│       │   ├── modules/
-│       │   │   ├── identity/
-│       │   │   ├── users/
-│       │   │   ├── media/
-│       │   │   ├── notifications/
-│       │   │   └── audit/               # Product modules wait for separate requirements
-│       │   ├── jobs/
-│       │   ├── realtime/
-│       │   ├── mail/
-│       │   ├── storage/
-│       │   └── observability/
-│       ├── Dockerfile
+│   ├── server/
+│   │   ├── src/
+│   │   │   ├── entrypoints/
+│   │   │   │   ├── http.ts              # Fastify + Better Auth + Socket.IO
+│   │   │   │   ├── worker.ts            # pg-boss consumers
+│   │   │   │   └── migrate.ts           # One-shot migrations
+│   │   │   ├── app.ts                    # Fastify composition root
+│   │   │   ├── plugins/
+│   │   │   ├── modules/
+│   │   │   │   ├── identity/
+│   │   │   │   ├── users/
+│   │   │   │   ├── media/
+│   │   │   │   ├── notifications/
+│   │   │   │   └── audit/               # Product modules wait for separate requirements
+│   │   │   ├── jobs/
+│   │   │   ├── realtime/
+│   │   │   ├── mail/
+│   │   │   ├── storage/
+│   │   │   └── observability/
+│   │   ├── Dockerfile
+│   │   └── package.json
+│   │
+│   └── dashboard/
+│       ├── app/                         # operator auth, overview, services, jobs, logs, application empty state
+│       ├── lib/                         # fixed Prometheus descriptors, auth/audit, safe snapshot adapters
+│       ├── Dockerfile                   # one environment-neutral non-root image
 │       └── package.json
 │
 ├── packages/
@@ -391,6 +421,7 @@ The root package.json must be private, pin the packageManager field, and provide
 | packages/email | Renderable templates and typed email inputs | worker; preview tooling in development |
 | packages/storage | Storage interface plus filesystem/S3 implementations | API, worker, and tests |
 | packages/testing | Factories, fixtures, and integration helpers | tests only |
+| apps/dashboard | Operator auth/TOTP, fixed monitoring queries, safe log snapshots, custom UI | dashboard image only; never imported into customer web/server |
 | infra | Compose, proxy, datastore, mail bootstrap, and operations | deployment tooling |
 
 Keep contracts browser-safe. They must not import database clients, Node-only modules, or secrets. Database, SMTP, filesystem, and privileged configuration packages must never enter the frontend bundle.
@@ -422,20 +453,21 @@ Use the repository root as the Docker build context so each application can cons
 ~~~bash
 docker build -f apps/web/Dockerfile -t <app-slug>-web:<git-sha> .
 docker build -f apps/server/Dockerfile -t <app-slug>-server:<git-sha> .
+docker build -f apps/dashboard/Dockerfile -t <app-slug>-dashboard:<git-sha> .
 ~~~
 
 Because the Compose files live under infra, their development build blocks should use context: .. and the appropriate apps/.../Dockerfile path.
 
-Both Dockerfiles should be multi-stage:
+All three Dockerfiles should be multi-stage:
 
 1. a pinned Node 24.20.0 LTS base;
 2. a dependency stage using the frozen pnpm lockfile;
 3. a build/test stage;
 4. a minimal non-root runtime stage.
 
-The web runtime contains only the Next.js standalone output and required public assets. Configure Next.js with `output: "standalone"` and `images.unoptimized: true`; do not use route `revalidate`, ISR, or a framework data cache that requires runtime disk writes in this launch profile. Dynamic application data comes from the API and is fetched without a hidden persistent Next.js cache. Every route must render without writing persistent framework state. The server runtime contains compiled server code and production dependencies used by API, worker, and migrate. Neither runtime image should contain Git metadata, production environment files, tests, coverage, local media, backup files, package-manager caches, or unrelated workspace source.
+The web runtime contains only the Next.js standalone output and required public assets. Configure Next.js with `output: "standalone"` and `images.unoptimized: true`; do not use route `revalidate`, ISR, or a framework data cache that requires runtime disk writes in this launch profile. Dynamic application data comes from the API and is fetched without a hidden persistent Next.js cache. Every route must render without writing persistent framework state. The server runtime contains compiled server code and production dependencies used by API, worker, and migrate. The dashboard runtime contains only its standalone custom UI/server adapters and has no customer application/database credentials. No runtime image should contain Git metadata, production environment files, tests, coverage, local media, backup files, package-manager caches, monitoring state, SQLite operator state, or unrelated workspace source.
 
-Both application images are environment-neutral. CI supplies no staging/production domain, OAuth client ID, cookie name, mail host, API origin, feature secret, or other environment-specific build argument/`NEXT_PUBLIC_*` value. The sole exception is the public, environment-neutral `NEXT_PUBLIC_APP_VERSION`, derived from the root package and passed before `next build`; the same value labels both OCI images. Browser code uses same-origin relative `/api`, `/socket.io`, and `/media` paths. If the browser later needs any other public environment metadata, Next SSR/API returns it through one typed allowlisted runtime payload with no server-only values; it is not baked into the client bundle. CI scans standalone output, source maps, and browser chunks for staging/production sentinels and proves the exact same web/server image digests operate with separate staging and production runtime configuration.
+All three application images are environment-neutral. CI supplies no staging/production domain, OAuth client ID, cookie name, mail host, API/Prometheus origin, feature secret, operator identity, or other environment-specific build argument/`NEXT_PUBLIC_*` value. The sole exception is the public, environment-neutral `NEXT_PUBLIC_APP_VERSION`, derived from the root package and passed before each Next build; the same value labels all three OCI images. Customer browser code uses same-origin relative `/api`, `/socket.io`, and `/media` paths. Dashboard browser code uses only same-origin typed monitoring APIs; the dashboard server receives its fixed environment and private Prometheus URL at runtime. CI scans standalone output, source maps, and browser chunks for staging/production/secret sentinels and proves the exact same dashboard digest operates with separate staging and production runtime configuration.
 
 The production web container is read-only. `/tmp` may be a bounded tmpfs for unavoidable temporary files, but it is not an ISR or image cache. If a future feature requires ISR or on-server image optimization, add a specifically sized writable cache and a cache invalidation/backup decision rather than silently making the whole root filesystem writable.
 
@@ -492,6 +524,20 @@ Use Compose layering rather than maintaining unrelated files:
 - no source-code bind mounts;
 - no internal datastore host ports.
 
+**infra/compose.monitoring.staging.yaml and infra/compose.monitoring.production.yaml**
+
+- staging adds `staging-dashboard` and `staging-prometheus`; production adds `production-dashboard` and `production-prometheus`;
+- the environment Prometheus inputs are `infra/monitoring/prometheus/staging/prometheus.yml` and `infra/monitoring/prometheus/production/prometheus.yml`, with shared reviewed rules at `infra/monitoring/prometheus/rules/esmii.rules.yml`;
+- Caddy imports only `infra/caddy/sites/staging-dashboard.caddy` and `infra/caddy/sites/production-dashboard.caddy` through their separately gated environment extensions;
+- `scripts/monitoring-payload.mjs` deterministically packages the exact Prompt-07 host file allowlist, both active pull wrappers, and full source revision into a dedicated closed payload. Separately hash-approved detached copies of the tiny bootstrap and fixed `infra/monitoring/monitoring_payload.py` verifier are installed outside the candidate tree; the bootstrap rechecks both the independently recorded payload digest/revision and fixed-verifier digest before invoking it, and candidate payload code never authenticates itself. Only the fixed verifier may materialize the closed payload below its root-owned digest path. Every mutating monitoring entrypoint refuses a checkout/unsealed source, and collector, wrapper-integration, and runtime manifests bind the same payload identity;
+- `infra/monitoring/render_monitoring.py` renders one environment at a time but creates no activation marker; `infra/monitoring/manage-monitoring-runtime.sh` is the fixed private-start/edge/stop entrypoint, and `infra/monitoring/install-monitoring-runtime.sh`, `infra/monitoring/install-pull-wrapper-integration.sh`, and `infra/monitoring/rollback_monitoring_runtime.py` are the bounded render/integration/rollback entrypoints; all live Compose mutations use project `esmii`, the shared `/run/lock/esmii/host-pull.lock`, fixed paths/services, and no caller-provided Compose target;
+- the same immutable dashboard image is used in both environments with runtime-fixed hostname, environment, private Prometheus URL, cookie, SQLite, secret, and snapshot paths;
+- staging uses monitoring edge/data `172.30.40.0/29` and `172.30.40.8/29`; production uses `172.30.41.0/29` and `172.30.41.8/29`;
+- Caddy attaches only to each monitoring edge, the dashboard bridges only its own edge/data, and Prometheus attaches only to its own internal data network;
+- Prometheus `9090`, dashboard `3000`, node_exporter `9100`, SQLite, metrics, and log snapshots are never published as host ports or routed raw through Caddy;
+- dashboard instances are non-root/read-only except their environment-specific root-owned SQLite/cache mounts; Prometheus has only its own persistent TSDB volume; and
+- no service mounts `/var/run/docker.sock`, another environment's path, a customer database secret, application media/mail state, or a general host filesystem.
+
 All overlays require Docker Compose 2.33.1 or later for `gw_priority` and the `!override` merge tag. Set `gw_priority: 1` on each API edge and on `production-mail-egress` for Stalwart; internal networks remain priority 0. Render tests prove base+development publishes only loopback ports and references no remote `/srv/myapp` paths, base+staging publishes the remote Caddy ports once, and base+staging+production preserves that single list while adding only production's edge/mount. See Docker's [`gw_priority` contract](https://docs.docker.com/reference/compose-file/services/#gw_priority) and [Compose merge tags](https://docs.docker.com/reference/compose-file/merge/).
 
 **infra/compose.s3.yaml**
@@ -506,7 +552,7 @@ All overlays require Docker Compose 2.33.1 or later for `gw_priority` and the `!
 - never exposes the Stalwart administrator listener or management API through Caddy;
 - excluded from this Netcup blueprint unless a later provider-policy, security, capacity, and product decision explicitly authorizes it; general end-user mailbox hosting is not part of launch.
 
-Use explicit environment-prefixed service keys. Production names are `production-web`, `production-api`, `production-worker`, `production-migrate`, `production-postgres`, `production-valkey`, and `production-stalwart`. Staging uses the same suffixes with `staging-` and uses `staging-mailpit`; development uses `development-`. The only unprefixed host service is shared `caddy`. Add `seaweedfs` only through the S3 overlay. Do not set `container_name`, because it prevents normal Compose service scaling and safe replacement.
+Use explicit environment-prefixed service keys. Production names are `production-web`, `production-api`, `production-worker`, `production-migrate`, `production-postgres`, `production-valkey`, `production-stalwart`, `production-dashboard`, and `production-prometheus`. Staging uses the same application/monitoring suffixes with `staging-` and uses `staging-mailpit`; development uses `development-`. The only unprefixed container service is shared `caddy`; node_exporter and collectors are bounded host units, not Compose services. Add `seaweedfs` only through the S3 overlay. Do not set `container_name`, because it prevents normal Compose service scaling and safe replacement.
 
 Use two explicit project names:
 
@@ -693,9 +739,15 @@ Do not create separate repositories or services merely because modules have diff
 | production PostgreSQL | none | production-data | production PostgreSQL volume | 768 MB |
 | production Valkey | none | production-data | disposable cache state | 256 MB |
 | production Stalwart | SMTP only after Prompt 06 mail gate | production mail networks | config and operational mail data | 512 MB |
+| staging dashboard | none directly; Caddy hostname only after gate | staging monitoring edge/data | staging-only SQLite auth/audit and bounded cache | 192 MB |
+| staging Prometheus | none | staging monitoring-data | staging TSDB, 7 days/1 GB max within a 1.25 GB disk allowance | 256 MB |
+| production dashboard | none directly; Caddy hostname only after gate | production monitoring edge/data | production-only SQLite auth/audit and bounded cache | 192 MB |
+| production Prometheus | none | production monitoring-data | production TSDB, 7 days/1 GB max within a 1.25 GB disk allowance | 256 MB |
+| host node_exporter | private bridge gateway listeners only | host to both monitoring-data networks | no durable state; environment textfile roots are separate | 64 MB |
+| root metrics/log collectors | no listener | host-only fixed commands and outputs | atomic environment-specific textfiles/snapshots | 64 MB each transient `MemoryMax` |
 | SeaweedFS | none unless separately approved | deferred isolated storage networks | object data | disabled |
 
-These limits total roughly 3.9 GB and are starting caps, not universal truth. PostgreSQL and Valkey internal settings must fit their container caps. Preserve the remaining memory for Ubuntu, Docker, page cache, migrations, backup/restore, media bursts, and safety headroom. Stalwart is limited by Netcup policy and this design to low-volume transactional/account traffic and named operational mailboxes, never bulk/marketing delivery. See [Stalwart system requirements](https://stalw.art/docs/install/requirements/).
+The existing application/mail limits total 4,000 MiB and Prompt 07 adds exactly 1,088 MiB, for 5,088 MiB steady-state ceilings and 5,280 MiB during one 192 MiB migration. These are starting caps, not reservations or universal truth. PostgreSQL and Valkey internal settings must fit their container caps. Preserve the remaining 2,912 MiB peak headroom for Ubuntu, Docker, kernel, page cache, backup/restore, media bursts, and safety. Stalwart is limited by Netcup policy and this design to low-volume transactional/account traffic and named operational mailboxes, never bulk/marketing delivery. See [Stalwart system requirements](https://stalw.art/docs/install/requirements/).
 
 ### Networks
 
@@ -707,9 +759,11 @@ These limits total roughly 3.9 GB and are starting caps, not universal truth. Po
 - **mail-admin:** Stalwart plus explicitly invoked administration tooling; never Caddy and never public.
 - **mail-egress:** Stalwart-only outbound internet access for SMTP, DNS, ACME, and reviewed updates.
 - **worker-egress:** absent at launch. Add a narrowly controlled worker-only egress network only when a separately approved integration requires direct outbound access.
+- **monitoring edge:** `staging-monitoring-edge` (`172.30.40.0/29`) and `production-monitoring-edge` (`172.30.41.0/29`) contain Caddy plus only that environment's dashboard. They contain no Prometheus, node_exporter, application, data, storage, or mail service.
+- **monitoring data:** internal `staging-monitoring-data` (`172.30.40.8/29`, host/node target `172.30.40.9`) and `production-monitoring-data` (`172.30.41.8/29`, host/node target `172.30.41.9`) contain only their dashboard/Prometheus pair and the scoped host node_exporter listener. Per-Prometheus relabeling discards the other environment's collector series.
 - **mailbox-public/storage-edge:** absent at launch; optional overlays expose only their intended data listeners to Caddy.
 
-Caddy must not join data, storage-internal, mail-events, mail-admin, or mail-submit networks and must never mount the Docker socket. The web container must never receive database, Valkey, SMTP, object-admin, backup, or migration credentials. The worker has no public listener. A service attached to multiple networks **and requiring internet egress** must declare its intended non-internal default gateway with `gw_priority`; verify the resulting route from the running container rather than relying on network-name or attachment order. Production and staging workers are deliberately attached only to their own internal data/storage/mail-submit networks, have no non-internal gateway, and must fail direct external DNS/HTTP/SMTP reachability; each submits only to Stalwart with its own credential.
+Caddy must not join data, storage-internal, monitoring-data, mail-events, mail-admin, or mail-submit networks and must never mount the Docker socket. The web and dashboard containers must never receive database, Valkey, SMTP, object-admin, backup, migration, or Docker credentials; the dashboard receives only its environment operator/Prometheus/snapshot configuration. The worker has no public listener. A service attached to multiple networks **and requiring internet egress** must declare its intended non-internal default gateway with `gw_priority`; verify the resulting route from the running container rather than relying on network-name or attachment order. Production and staging workers are deliberately attached only to their own internal data/storage/mail-submit networks, have no non-internal gateway, and must fail direct external DNS/HTTP/SMTP reachability; each submits only to Stalwart with its own credential.
 
 ### Persistent paths
 
@@ -738,6 +792,23 @@ Use explicit, environment-specific host paths for things that need operational v
       private/
     mail-sink/                       # Mailpit only; never an internet relay
 
+/var/lib/esmii/monitoring/
+  shared/
+    state/                            # collector cursors/status; root-owned
+    textfiles/                        # atomic metrics; node_exporter read-only
+  staging/
+    auth/                             # staging-only SQLite auth/audit and bounded cache
+    prometheus/                       # staging-only TSDB, 7d/1GB retention, 1.25GB allowance
+    logs/                             # atomic sanitized snapshot, 24h/10000/20MiB ceiling
+  production/
+    auth/                             # production-only SQLite auth/audit and bounded cache
+    prometheus/                       # production-only TSDB, 7d/1GB retention, 1.25GB allowance
+    logs/                             # atomic sanitized snapshot, 24h/10000/20MiB ceiling
+
+/etc/esmii/monitoring/
+  staging/                            # mode 0600 secret/config files; no values in Git
+  production/                         # separate mode 0600 secret/config files
+
 /etc/myapp/
   deployment-policies/
     staging.yaml                     # installed only after its explicit policy gate
@@ -747,7 +818,7 @@ Use explicit, environment-specific host paths for things that need operational v
     staging/
 ~~~
 
-Use one disposable development Compose project and one VPS host project. Within the host project, PostgreSQL, Valkey, application services, state volumes, credentials, and networks are explicitly prefixed `production-` or `staging-`. The physical host, Docker daemon, root-owned release tooling/reconciler, and Caddy are shared control-plane components; only Caddy joins both edge networks and it receives no application credentials. The production file must contain only production paths; the staging overlay must contain only staging paths except for its additive reviewed Caddy extension. CI fails if staging references `/srv/myapp/production` or `/etc/myapp/secrets/production`.
+Use one disposable development Compose project and one VPS host project. Within the host project, PostgreSQL, Valkey, application/monitoring services, state volumes, credentials, and networks are explicitly prefixed `production-` or `staging-`. The physical host, Docker daemon, root-owned release tooling/reconciler, Caddy, node_exporter binary, and fixed collectors are shared control-plane components; only Caddy joins both application and monitoring edge networks and it receives no application/dashboard credentials. The production file must contain only production paths; the staging overlay must contain only staging paths except for its additive reviewed Caddy extension. CI fails if staging references `/srv/myapp/production`, `/etc/myapp/secrets/production`, `/etc/esmii/monitoring/production`, or `/var/lib/esmii/monitoring/production`, and vice versa for production.
 
 For PostgreSQL 18, the official image changed its default data layout. If using a named volume, mount it at /var/lib/postgresql, not the old PostgreSQL 17 path. The [official PostgreSQL image documentation](https://hub.docker.com/_/postgres) explains the version-specific PGDATA change.
 
@@ -1432,6 +1503,24 @@ The public-media mount contains only generated public variants. The `handle /med
 
 The actual application must define a tested Content Security Policy; a generic Caddy policy can break Next.js or permit more than intended. Add HSTS only after HTTPS and the subdomain plan are stable. Set route-specific request-body limits so ordinary JSON routes remain small while the controlled media upload path can accept its explicit maximum. Caddy documents [request body limits](https://caddyserver.com/docs/caddyfile/directives/request_body), [access logs](https://caddyserver.com/docs/caddyfile/directives/log), and [reverse proxy behavior](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy).
 
+Prompt 07 adds two separate site fragments after their respective external gates:
+
+~~~caddyfile
+<STAGING_DASHBOARD_DOMAIN> {
+    # Same security/log-redaction baseline as the application site.
+    # No raw Prometheus/node_exporter/collector route exists.
+    reverse_proxy staging-dashboard:3000
+}
+
+<PRODUCTION_DASHBOARD_DOMAIN> {
+    reverse_proxy production-dashboard:3000
+}
+~~~
+
+Each fragment sends all auth/UI/typed monitoring API traffic to only its environment dashboard. Caddy performs no operator authentication itself and therefore cannot accidentally create a bypass path; the dashboard enforces password plus TOTP before every monitoring HTML/RSC/API response. `/healthz` is the sole detail-free unauthenticated process endpoint. Auth URLs, every query-bearing request, cookies, authorization headers, TOTP values, and operator identifiers are excluded/redacted from access logs. Caddy joins only the matching monitoring-edge network and never monitoring-data.
+
+Each dashboard hostname remains absent from the active Caddy configuration until its external gate. At activation, use Caddy's reviewed Let's Encrypt ACME issuer, redirect HTTP to HTTPS, verify the issued certificate chain/hostname/renewal schedule, and retain the preceding Worker/DNS route for rollback. A certificate failure must not be bypassed with an untrusted certificate, raw port, or public Prometheus/exporter route.
+
 There is deliberately no `<MAIL_HOSTNAME>` Caddy site in the transactional-only profile. The Stalwart management listener is private and never routed by Caddy. Public mailbox/JMAP hosting is outside this blueprint.
 
 Stock Caddy handles HTTP and WebSocket traffic. Stalwart's approved SMTP listener is published directly by Docker only after the mail gate; operational IMAPS is loopback-only. Do not install a custom layer-4 Caddy build merely to proxy mail.
@@ -1454,6 +1543,7 @@ Stock Caddy handles HTTP and WebSocket traffic. Stalwart's approved SMTP listene
 | 993/tcp | no public bind | Stalwart | use loopback 1993 for named operational mailboxes |
 | 4190/tcp | no | Stalwart | ManageSieve excluded at launch |
 | 3000, 5432, 6379, 8080, 8333 and admin/metrics ports | no | internal services | Docker networks only |
+| 9090, 9100 | no | Prometheus and node_exporter | environment monitoring-data networks/bridge gateway listeners only; never Caddy or host-public |
 
 Use both the Netcup SCP firewall and explicit Docker-aware host filtering. Docker warns that published container ports can bypass the normal UFW path, so do not assume an uncomplicated UFW rule protects a published port. Keep Docker's firewall integration enabled, publish only explicit ports, and validate `DOCKER-USER`/nftables policy from an external machine. Netcup's Mail block remains a separate SMTP control. See [Docker packet filtering and firewalls](https://docs.docker.com/engine/network/packet-filtering-firewalls/) and [Netcup firewall documentation](https://www.netcup.com/en/helpcenter/documentation/server/firewall).
 
@@ -1463,6 +1553,8 @@ Use both the Netcup SCP firewall and explicit Docker-aware host filtering. Docke
 <STAGING_APP_DOMAIN>      tester-only web, API, auth, Socket.IO, and public variants
 <PRODUCTION_APP_DOMAIN>   web, API, auth, Socket.IO, and public /media variants
 <MAIL_HOSTNAME>           DNS-only SMTP/TLS identity; no Caddy site
+<STAGING_DASHBOARD_DOMAIN> Prompt 07 staging operator UI; DNS-only direct to Caddy after Worker migration gate
+<PRODUCTION_DASHBOARD_DOMAIN> Prompt 07 production operator UI; DNS-only direct to Caddy after staging soak and production gate
 <STORAGE_HOSTNAME>        optional S3 data endpoint only after separate approval
 ~~~
 
@@ -2053,11 +2145,22 @@ Do not accept production until an encrypted backup has left Netcup and an isolat
 
 ### Step 15: complete restricted-production acceptance and advance `main`
 
-Verify external monitoring, reboot recovery, capacity, security, environment isolation, backup freshness/restore, transactional mail, and a newly signed production-only rollback that preserves current staging/shared state. Re-read the active release while holding the host-operation lock. Only after every gate passes may the separate protected promotion identity fast-forward `main` to the exact staged source SHA; the reconciler cannot update branches.
+Verify the separately required off-host outage monitor, reboot recovery, capacity, security, environment isolation, backup freshness/restore, transactional mail, and a newly signed production-only rollback that preserves current staging/shared state. Prompt 07's on-VPS dashboard does not satisfy the off-host monitor. Re-read the active release while holding the host-operation lock. Only after every gate passes may the separate protected promotion identity fast-forward `main` to the exact staged source SHA; the reconciler cannot update branches.
 
 ### Step 16: optionally open production publicly
 
 Public launch is a further approval and a new signed activation manifest satisfying the edge-only invariant in `docs/deployment.md`. Base it on the current predecessor while holding the global host-operation lock, preserve current staging/shared and every non-edge production field, then verify access from a formerly disallowed source.
+
+### Step 17: activate Prompt 07 monitoring through its separate gates
+
+1. Finish repository/local validation first. A built dashboard image or passing CI authorizes no host/provider action.
+2. Under a fresh read-only-audit approval, verify live Cloudflare bindings/records, VPS resources/listeners/routes/packages/timers, Docker networks, current restart history, certificate state, and absence of conflicting monitoring software.
+3. Under a staging host-change approval, install the fixed root node_exporter/collector units, root-only directories/secrets, `staging-prometheus`, `staging-dashboard`, private networks, and Caddy fragment while leaving public DNS unchanged. Validate through VPN/loopback.
+4. Record the existing `staging-dashboard.esmii.app` Worker custom-domain state. Under its Cloudflare gate, detach only that binding, create DNS-only VPS A/AAAA records, and verify Caddy's Let's Encrypt issuance/automatic renewal and HTTPS redirect, password+TOTP-before-data, log redaction, no public metric ports, and an exact Worker rollback.
+5. Run a continuous 24-hour staging soak under representative combined application/mail load. Production is blocked by sustained RAM above 70%, any sustained normal-load swap, OOM, repeated restart, threshold breach, isolation/auth failure, or unacceptable application latency.
+6. After explicit soak acceptance and a separate production host/secret approval, instantiate the same verified dashboard digest as `production-dashboard` with its own Prometheus, networks, SQLite, operator credential/TOTP/session secrets, Caddy fragment, retention, and rollback point.
+7. After a fresh audit proves `dashboard.esmii.app` unoccupied, separately approve DNS-only A/AAAA creation and verify Caddy's Let's Encrypt issuance/automatic renewal, HTTPS redirect, auth, isolation, and no-public-metrics exposure.
+8. Keep the off-host outage-monitor/alert route separate: same-VPS Prometheus cannot observe complete host, provider, network, power, or authoritative-DNS loss.
 
 ## 17. Security model
 
@@ -2082,6 +2185,8 @@ The following should always be true:
 13. Staging and production share only the explicitly named host-level control plane (physical host, Docker daemon/project, root-owned release tooling/reconciler) and Caddy; they share no application/data network, state path, volume, credential, cookie, OAuth application, mail identity, or backup repository.
 14. Stalwart feedback is accepted only on the internal network after HMAC verification and unique event-ID insertion.
 15. The host accepts deployments only through the root-owned outbound reconciler and sealed wrappers; GitHub-hosted runners receive no inbound SSH or Docker access.
+16. Each monitoring hostname has its own Better Auth password-plus-TOTP operator realm, SQLite/audit state, host-only cookie, and private Prometheus; it has no customer account/organization authority.
+17. Raw Prometheus, node_exporter, collectors, SQLite state, and log snapshots are never public. The dashboard cannot accept arbitrary PromQL/commands or access Docker.
 
 ### Host and container hardening
 
@@ -2294,18 +2399,24 @@ Alert at:
 - backup freshness and restore-test failure;
 - certificate expiry.
 
-### Optional heavyweight monitoring profile
+### Prompt 07 bounded on-host monitoring profile
 
-Only after day-one signals are insufficient, measured capacity allows it, and the change is separately approved:
+The user approved repository implementation of the following exact profile. Live host installation and either public hostname remain separately gated:
 
-- Prometheus with tight local retention;
-- node_exporter;
-- PostgreSQL and Valkey exporters;
-- Alertmanager;
-- Grafana;
-- optional OpenTelemetry Collector with sampled traces.
+- one immutable `@esmii/dashboard` image instantiated as `staging-dashboard` and `production-dashboard`, each fixed to one environment at startup;
+- one Prometheus instance per environment, each capped at 256 MiB and retaining no more than seven days or 1 GB of samples inside a 1.25 GB disk allowance;
+- one loopback-only host `node_exporter` behind systemd socket proxies on `172.30.40.9:9100` and `172.30.41.9:9100`; the exporter and proxies share one 64 MiB slice;
+- `esmii-container-metrics-collector.timer` every 15 seconds and `esmii-log-collector.timer` every 30 seconds, with their root-only one-shot services capped at 64 MiB each and scheduled not to overlap;
+- no cAdvisor, Grafana, Loki, Alertmanager, PostgreSQL/Valkey exporter, arbitrary PromQL endpoint, Docker socket mount, or browser-to-metrics route; and
+- per-Prometheus relabel rules that retain the shared VPS metrics and that environment's allowlisted container/timer series while dropping the other environment's series.
 
-Keep every metrics endpoint private. Local monitoring helps diagnosis but still cannot report total host loss, so the external probe remains.
+The dashboard server uses fixed, allowlisted query descriptors against only its private environment Prometheus. It reports host CPU/RAM/disk/I/O/network/uptime/load, allowlisted service and job status/restart facts, and sanitized warning/error snapshots. Application response-time/error-rate/request-count cards are a typed empty state until an application metrics contract is separately approved; they are not fabricated from logs.
+
+Each dashboard has a separate Better Auth SQLite operator realm: password plus mandatory TOTP, an eight-hour database-backed session, a host-only environment-prefixed cookie, and no signup, reset, social, magic-link, recovery-by-email, or customer-account bridge. Provision, recover, revoke, and reset operations use root-only local CLI flows with secret input from protected files or a TTY, never command-line arguments. The only public unauthenticated dashboard endpoint is `GET /healthz`; `/api/operator-auth/*`, authenticated pages, and every `/api/monitoring/*` route are rate-limited as appropriate and all monitoring data requires completed TOTP. This operator exception does not add password auth or a generic administrator role to the customer application.
+
+The root log collector reads only allowlisted source units/containers, selects warning/error records, strips ANSI/control characters, redacts configured secret/auth/query/cookie/header/email/token patterns before writing, truncates every message to 4 KiB, and atomically replaces one root-owned snapshot per environment. Each snapshot retains no more than 24 hours, 10,000 events, or 20 MiB, whichever limit is reached first. The dashboard receives read-only snapshot access and never receives journal, Docker, or shell authority. Source Docker logs retain their existing 10 MiB × 3 rotation; a snapshot is a bounded diagnostic view, not an archive.
+
+Raw ports `3000`, `9090`, and `9100` remain unpublished. Caddy joins only each environment's monitoring-edge network, each dashboard bridges only its own edge/data networks, and each Prometheus joins only its internal monitoring-data network. Same-VPS monitoring still cannot report complete host, provider, network, power, or authoritative-DNS loss, so a separately approved off-host outage monitor remains required for production acceptance.
 
 ## 20. CI/CD and rollback
 
@@ -2314,13 +2425,13 @@ If the Git repository is on GitHub, use GitHub Actions and GHCR. GitHub document
 ### Monorepo pipeline rules
 
 - Install the pnpm workspace once with the frozen root lockfile.
-- Changes under packages/contracts can affect both web and server.
+- Changes under packages/contracts can affect web, server, and dashboard contracts.
 - Changes under packages/database affect server tests, migrations, and the server image but must never enter the web image.
 - Changes under packages/email or packages/storage affect the server/worker image.
 - Changes under infra must run Compose rendering, configuration checks, and relevant smoke tests even when application code did not change.
 - Render every authorized phase: development in Prompt 02; base+staging and base+staging+production in Prompt 04; active staging in Prompt 05; exact-digest production promotion in Prompt 06; and optional overlays only after separate approval. Policy-test cross-environment references and prevent inactive overlays from activating implicitly.
-- Build web and server with separate multi-stage Dockerfiles and a strict root .dockerignore.
-- Label both images with the Git SHA and source repository.
+- Build web, server, and dashboard with separate multi-stage Dockerfiles and a strict root .dockerignore.
+- Label all three images with the Git SHA, source repository, and shared application version.
 - Record one deterministic host activation manifest containing a separate application-payload digest, source Git SHA, web/server digests, schema transition, and rendered-configuration digest for each active environment, plus the shared-infrastructure-payload/configuration digests and infrastructure commit. Record request/activation time in the signed external deployment envelope and immutable outcome checkpoint, not as a renderer-varying manifest input. When only one environment changes, copy the other environment block and shared payload digest unchanged from the prior manifest.
 - A monorepo allows a coordinated release but does not require rebuilding an unaffected image; path-aware CI may reuse the previously tested digest.
 - Never use path filtering to skip a shared-package, migration, secret-scan, or infrastructure validation that could affect the deployment.
@@ -2332,25 +2443,25 @@ If the Git repository is on GitHub, use GitHub Actions and GHCR. GitHub document
 3. Unit tests.
 4. Integration tests with fresh PostgreSQL and Valkey.
 5. Test migrations from an empty database and a previous-schema fixture.
-6. Build minimal non-root server and web images.
-7. Dependency, secret, and image scan; SBOM.
+6. Build minimal non-root server, web, and dashboard images.
+7. Dependency, secret, and all-image scans; emit a separate SBOM for every image.
 8. End-to-end magic-link/session/logout test plus mocked Google callback and account-linking tests; prove password routes are absent.
 9. Socket reconnect test.
 10. Outbox dispatch, pg-boss runtime-permission, retry, and idempotency tests with runtime migrations disabled.
 11. SMTP test against a non-delivering test server plus signed/replayed/duplicate Stalwart feedback fixtures.
 12. Always test the storage adapter contract, mount permissions, and Caddy denial of private/non-variant paths. Add media upload, Sharp limit, public/private delivery, deletion, and reconciliation tests only after an approved media feature exists.
-13. Start the standalone Next.js image read-only and prove SSR, restart, and navigation work without ISR or image-cache writes.
+13. Start the standalone customer and dashboard Next.js images read-only and prove SSR, restart, and navigation work without ISR or image-cache writes. Prove dashboard pages and APIs fail closed without the environment's completed password-plus-TOTP session.
 
 ### Staging and production pipeline
 
 1. Merge feature work by protected pull request into `dev`; build/test in CI, never on the VPS.
-2. Push images tagged with the immutable Git SHA.
+2. Push web, server, and dashboard images tagged with the immutable Git SHA. The dashboard is built once per successful source revision; staging and production instantiate the same digest with separate runtime configuration.
 3. Resolve image digests and generate/attest the immutable application payload. For the first staging release, reproduce the exact deterministic Prompt 04 shared-infrastructure bytes, require the approved local checksum/inventory, independently attest and publish them as an immutable GHCR OCI artifact, then verify the registry/download digest. Later releases reference that unchanged artifact unless a separate host-wide change is approved. Sign the staging activation manifest and create a Deployment request for the protected `dev` SHA.
 4. Let the root-owned VPS reconciler poll outbound, verify/signature-check, seal base+staging, migrate staging, activate, run host-local smoke checks, and report status.
 5. Record staging source SHA, shared-infrastructure/application-payload/activation-manifest/image/configuration digests, schema, test evidence, resource state, and rollback target.
 6. For production, require the separate protected GitHub production Environment approval, preserve the current staging block, reuse its application-payload/image digests without rebuilding in the production block, keep the shared-infrastructure payload unchanged, and create a new signed production activation manifest.
 7. Seal base+staging+production, preserving the active staging block; run production migration and activate through the same fixed wrappers.
-8. Complete production auth/isolation/mail/backup/monitoring/rollback checks and report deployment success.
+8. Complete production auth/isolation/mail/backup/monitoring/rollback checks and report deployment success. Publishing or advancing a dashboard image pointer does not authorize host installation, Worker/DNS migration, a public dashboard route, operator-secret creation, or monitoring activation.
 9. Fast-forward protected `main` to the staged source SHA only after production success. A failed activation leaves it unchanged; later rollback is recorded by a reviewed forward rollback/revert commit, never a force-push.
 10. Open production publicly only after separate approval.
 
@@ -2376,8 +2487,12 @@ Do not install a privileged general-purpose self-hosted CI runner, expose Docker
 | shared Caddy | 96 MB |
 | staging PostgreSQL / Valkey / web / API / worker / Mailpit | 384 / 128 / 256 / 256 / 192 / 128 MB |
 | production PostgreSQL / Valkey / web / API / worker / Stalwart | 768 / 256 / 384 / 384 / 256 / 512 MB |
+| staging + production dashboards | 192 MB each; 384 MB total |
+| staging + production Prometheus | 256 MB each; 512 MB total |
+| shared node_exporter plus private socket proxies | 64 MB aggregate |
+| transient metrics + log collectors | 64 MB each; 128 MB aggregate; non-overlapping |
 
-The service caps total roughly 3.9 GB. They are ceilings, not reservations, and database/cache internal settings must fit inside them. Measure combined staging+production load, migrations, backup/restore, and worst-approved media work.
+The existing service caps total 4,000 MiB. Prompt 07 adds exactly 1,088 MiB, for a 5,088 MiB steady-state ceiling. One 192 MiB migration can raise the bounded activation peak to 5,280 MiB, leaving 2,912 MiB on an 8 GiB host for Ubuntu, Docker, kernel, page cache, backup/restore, media bursts, and safety. These are ceilings, not reservations, and database/cache internal settings must fit inside them. Production monitoring requires a continuous successful 24-hour staging soak under representative combined application/mail load.
 
 Investigate and resize/optimize when any remains true under normal load:
 
@@ -2388,7 +2503,7 @@ Investigate and resize/optimize when any remains true under normal load:
 - queue delay or database latency violates the product target;
 - fewer than 20% disk headroom.
 
-Do not add SeaweedFS, ClamAV, Prometheus/Grafana, public mailbox mode, API replicas, or video transcoding simply because the plan begins at 8 GB.
+Do not add SeaweedFS, ClamAV, Grafana/Loki/cAdvisor/tracing, public mailbox mode, API replicas, or video transcoding simply because the plan begins at 8 GB. The approved Prometheus/dashboard exception is limited to the exact 1,088 MiB Prompt 07 profile.
 
 ### Disk budget for 256 GB
 
@@ -2402,8 +2517,9 @@ These are monitored quotas/growth allowances, not partitions:
 | production media originals/variants | 55 GB |
 | staging media | 10 GB |
 | Stalwart config/queues/operational mail | 12 GB |
+| Prometheus TSDBs and monitoring snapshots | 5 GB |
 | bounded local backup/restore workspace | 15 GB |
-| emergency/growth reserve | 62 GB |
+| emergency/growth reserve | 57 GB |
 
 Do not preallocate these amounts or let one subsystem consume another's reserve. Alert at 60%, act at 70%, treat 80% as critical, enforce media/mail/log quotas, and keep at least 20% free. The durable Restic repository is outside Netcup.
 
@@ -2556,7 +2672,7 @@ These are frequently missing from an “all the containers” list but matter mo
 | Socket.IO Valkey adapter | before second API process |
 | PgBouncer | measured connection pressure |
 | ClamAV worker | arbitrary untrusted document uploads |
-| Prometheus/Grafana | simpler health/log/host signals are insufficient and measured headroom or a separate monitoring host has been approved |
+| Grafana/Alertmanager/additional exporters | the fixed Prompt 07 custom dashboard and collectors are proven insufficient, measured headroom exists, and a separate architecture approval is recorded |
 | CDN/WAF | bandwidth, geography, or abuse justifies the managed edge dependency |
 | dedicated search | PostgreSQL search is proven inadequate |
 | second VPS | availability, reputation, recovery, or disk isolation becomes necessary |
@@ -2573,7 +2689,7 @@ These are frequently missing from an “all the containers” list but matter mo
 - self-hosted Sentry, ELK, Wazuh, or a long-retention Loki stack in the initial 8 GB dual-environment profile;
 - Vault/Infisical for one host when carefully protected files and encrypted offline recovery are enough;
 - Watchtower and unattended latest-tag upgrades;
-- public database/mail/object/admin dashboards;
+- public database/mail/object/customer-admin dashboards; the separately authenticated Prompt 07 operator dashboard is the only approved exception and exposes no raw backend UI;
 - backups that never leave the VPS.
 
 ## 25. Production acceptance checklist
@@ -2597,7 +2713,7 @@ The first production release is ready only when all applicable checks pass. It m
 
 ### Deployment
 
-- [ ] one monorepo contains web, server, shared packages, migrations, infrastructure, tests, CI/CD, and runbooks
+- [ ] one monorepo contains web, server, dashboard, shared packages, migrations, infrastructure, tests, CI/CD, and runbooks
 - [ ] base+development, base+staging, and base+staging+production render successfully
 - [ ] Prompt 05 manifest activates base+staging only and records `production: null`
 - [ ] Prompt 06 manifest activates base+staging+production, preserves staging, and uses the exact staging-tested production digests
@@ -2606,7 +2722,7 @@ The first production release is ready only when all applicable checks pass. It m
 - [ ] a deferred mailbox or S3 overlay renders only after its own approval and is absent from the first-release active composition
 - [ ] pnpm lockfile and reviewed database migrations are committed
 - [ ] real secrets, runtime data, media, mail state, certificates, logs, dumps, and backups are absent from Git
-- [ ] web and server Docker build contexts exclude unrelated files and secrets
+- [ ] web, server, and dashboard Docker build contexts exclude unrelated files and secrets
 - [ ] every image pinned by tested patch and digest
 - [ ] no latest tags
 - [ ] Compose config validation passes
@@ -2643,6 +2759,9 @@ The first production release is ready only when all applicable checks pass. It m
 - [ ] request limits, rate limits, and idempotency tested
 - [ ] logs contain IDs but no secrets/tokens/cookies
 - [ ] sentinel magic-link/OAuth/query/cookie/authorization values are absent from both Caddy and application logs
+- [ ] staging and production monitoring use separate Better Auth SQLite realms, password/TOTP credentials, session secrets, audit state, and host-only environment-prefixed cookies; no dashboard operator maps to a customer identity or organization role
+- [ ] every dashboard page and `/api/monitoring/*` route denies anonymous, password-only, wrong-environment, expired, revoked, and non-TOTP-complete sessions; only `GET /healthz` is public
+- [ ] operator login is rate-limited and audited without recording password, TOTP seed/code, session token, cookie, authorization value, or recovery material
 
 ### Media and storage boundary
 
@@ -2693,15 +2812,27 @@ The first production release is ready only when all applicable checks pass. It m
 - [ ] deploy, rollback, restore, mail, and incident runbooks reviewed
 - [ ] RPO and measured RTO recorded
 
+### Prompt 07 on-host monitoring
+
+- [ ] one dashboard image digest is instantiated with fixed, non-switchable staging and production runtime identity
+- [ ] Prometheus `9090`, node_exporter `9100`, dashboard `3000`, SQLite, textfiles, and sanitized snapshots have no public or raw Caddy route
+- [ ] monitoring edge/data network membership and `172.30.40.0/29`, `172.30.40.8/29`, `172.30.41.0/29`, and `172.30.41.8/29` boundaries render exactly
+- [ ] Prometheus retains at most seven days/1 GB within 1.25 GB per-environment disk allowances; snapshots retain at most 24 hours/10,000 events/20 MiB with 4 KiB per-message truncation
+- [ ] collector allowlists, environment relabel/drop rules, redaction fixtures, atomic replacement, restart/last-restart semantics, missing/stale/degraded states, and no-secret negative tests pass
+- [ ] new service ceilings total exactly 1,088 MiB and no collector overlap is observed
+- [ ] staging monitoring soaks continuously for 24 hours under representative combined load without sustained RAM above 70%, sustained swap, OOM, repeated restart, disk/inode breach, or unacceptable application latency
+- [ ] rollback removes only monitoring Caddy routes/containers/networks/units/state pointers and restores the preceding Worker routes without changing customer application/data/mail state
+- [ ] off-host outage monitoring is separately approved and active; same-host Prometheus is not treated as proof of host/provider/DNS reachability
+
 ## 26. Short decision recap
 
 - **OS:** keep Ubuntu 26.04 LTS.
 - **Repository:** one pnpm monorepo for web, server, shared packages, infrastructure, tests, CI/CD, and runbooks.
-- **Images:** one web image plus one server image reused by API, worker, and one-shot migration services.
+- **Images:** one web image, one server image reused by API/worker/migrations, and one dashboard image instantiated separately for staging and production.
 - **Repository boundary:** source and deployment recipes in Git; production secrets and live state under /etc/myapp and /srv/myapp.
 - **Orchestration:** Docker Engine + Compose, not Kubernetes or Podman for this one-host phase.
 - **Backend:** Node 24 LTS, TypeScript, Fastify, Drizzle, modular monolith.
-- **Auth:** Better Auth in Fastify with PostgreSQL sessions, passwordless magic links, Google OAuth, and `owner`/`editor`/`member` authorization; no password authentication or generic app-admin role.
+- **Auth:** customer Better Auth in Fastify uses PostgreSQL sessions, passwordless magic links, Google OAuth, and `owner`/`editor`/`member` authorization with no password or generic app-admin role. The isolated monitoring app uses separate Better Auth SQLite operator realms with password plus mandatory TOTP and no customer bridge.
 - **Gateway:** Caddy at the edge; no Kong/APISIX.
 - **Database:** PostgreSQL.
 - **Cache:** Valkey with separate API, worker, and health ACL identities; disposable state only.
@@ -2713,4 +2844,5 @@ The first production release is ready only when all applicable checks pass. It m
 - **Mail:** Stalwart handles only low-volume transactional/account delivery plus named operational mailboxes, with private management, signed feedback, correct TLS/SNI and Netcup/Cloudflare PTR/SPF/DKIM/DMARC gates; bulk/marketing/end-user mailbox hosting is excluded.
 - **Media:** per-environment public/private filesystem roots now; only public variants mounted into Caddy; metadata in PostgreSQL; optional SeaweedFS/S3 only after proven need and approved capacity.
 - **Backups:** encrypted Restic repository outside Netcup, with tested restores; provider snapshots are supplemental.
+- **Monitoring:** two private seven-day/1 GB Prometheus instances, one private host node_exporter path, fixed bounded root collectors, and one custom dashboard image; no cAdvisor/Grafana/Loki and no public raw metrics/log endpoints.
 - **Scaling:** vertical first; API replicas on the same VPS later; multi-host only when availability becomes a real requirement.

@@ -24,7 +24,9 @@ These files already define the generic core and infrastructure:
 - [`vps-setup.md`](vps-setup.md) — Netcup host preparation and hardening.
 - [`decisions.md`](decisions.md) — locked choices, defaults, deferred items, and required user inputs.
 - [`prompts/`](prompts/README.md) — gated implementation prompts.
-- [`runbooks/README.md`](runbooks/README.md) — Prompt 04 operational procedures and the proposed Prompt 05 remote-check plan.
+- [`runbooks/README.md`](runbooks/README.md) — gated infrastructure/operations procedures, including Prompt 07 capacity and rollback guidance.
+- [`prompts/07-build-monitoring-dashboard.md`](prompts/07-build-monitoring-dashboard.md) — the approved repository build and separately gated rollout contract for the operator monitoring dashboard.
+- [`runbooks/resource-budget.md`](runbooks/resource-budget.md) — the combined application and Prompt 07 monitoring memory/disk budget.
 
 ## Product documents
 
@@ -46,6 +48,7 @@ The files under [`design/`](design/) describe presentation and interaction after
 - [`design/responsive-design.md`](design/responsive-design.md)
 - [`design/accessibility.md`](design/accessibility.md)
 - [`design/content-guidelines.md`](design/content-guidelines.md)
+- [`design/monitoring-dashboard/`](design/monitoring-dashboard/) — Prompt 07 desktop, mobile, and operator-auth visual references; canonical security requirements override illustrative sample data/copy.
 
 ## Engineering specifications
 

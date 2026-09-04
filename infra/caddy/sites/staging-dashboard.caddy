@@ -1,0 +1,38 @@
+staging-dashboard.esmii.app {
+	encode zstd gzip
+	tls {
+		issuer acme {
+			dir https://acme-v02.api.letsencrypt.org/directory
+		}
+	}
+
+	log {
+		output stdout
+		format json
+	}
+
+	@auth_routes path /api/operator-auth /api/operator-auth/* /login /login/*
+	log_skip @auth_routes
+	@query_request expression `{http.request.uri.query} != ""`
+	log_skip @query_request
+
+	header {
+		-Server
+		Cache-Control "no-store"
+		Content-Security-Policy "default-src 'self'; base-uri 'none'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Resource-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+		Referrer-Policy "no-referrer"
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		X-Robots-Tag "noindex, nofollow, noarchive"
+	}
+
+	request_body {
+		max_size 16KB
+	}
+
+	reverse_proxy staging-dashboard:3000
+}

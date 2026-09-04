@@ -183,3 +183,131 @@ export async function writeSharedInfrastructurePayload(repositoryRoot, outputRoo
   }
   return { ...payload, archivePath, inventoryPath };
 }
+
+export const monitoringHostPayloadFiles = Object.freeze([
+  { mode: 0o644, path: "infra/ansible/roles/firewall/files/esmii-docker-firewall.sh" },
+  { mode: 0o644, path: "infra/caddy/sites/production-dashboard.caddy" },
+  { mode: 0o644, path: "infra/caddy/sites/staging-dashboard.caddy" },
+  { mode: 0o644, path: "infra/compose.monitoring.production.edge.yaml" },
+  { mode: 0o644, path: "infra/compose.monitoring.production.yaml" },
+  { mode: 0o644, path: "infra/compose.monitoring.staging.edge.yaml" },
+  { mode: 0o644, path: "infra/compose.monitoring.staging.yaml" },
+  { mode: 0o755, path: "infra/monitoring/container_metrics_collector.py" },
+  { mode: 0o755, path: "infra/monitoring/install-host-collectors.sh" },
+  { mode: 0o755, path: "infra/monitoring/install-monitoring-runtime.sh" },
+  { mode: 0o755, path: "infra/monitoring/install-pull-wrapper-integration.sh" },
+  { mode: 0o755, path: "infra/monitoring/log_collector.py" },
+  { mode: 0o755, path: "infra/monitoring/manage-monitoring-runtime.sh" },
+  { mode: 0o755, path: "infra/monitoring/materialize-monitoring-payload.sh" },
+  { mode: 0o644, path: "infra/monitoring/monitoring_common.py" },
+  { mode: 0o755, path: "infra/monitoring/monitoring_overlay_state.py" },
+  { mode: 0o755, path: "infra/monitoring/monitoring_payload.py" },
+  { mode: 0o644, path: "infra/monitoring/prometheus/production/prometheus.yml" },
+  { mode: 0o644, path: "infra/monitoring/prometheus/rules/esmii.rules.yml" },
+  { mode: 0o644, path: "infra/monitoring/prometheus/staging/prometheus.yml" },
+  { mode: 0o755, path: "infra/monitoring/render_monitoring.py" },
+  { mode: 0o755, path: "infra/monitoring/rollback-host-collectors.sh" },
+  { mode: 0o755, path: "infra/monitoring/rollback_monitoring_runtime.py" },
+  { mode: 0o755, path: "infra/production-pull/esmii-production-pull" },
+  { mode: 0o755, path: "infra/staging-pull/esmii-staging-pull" },
+  { mode: 0o644, path: "infra/systemd/esmii-container-metrics-collector.service" },
+  { mode: 0o644, path: "infra/systemd/esmii-container-metrics-collector.timer" },
+  { mode: 0o644, path: "infra/systemd/esmii-log-collector.service" },
+  { mode: 0o644, path: "infra/systemd/esmii-log-collector.timer" },
+  { mode: 0o644, path: "infra/systemd/esmii-node-exporter-production-proxy.service" },
+  { mode: 0o644, path: "infra/systemd/esmii-node-exporter-production-proxy.socket" },
+  { mode: 0o644, path: "infra/systemd/esmii-node-exporter-staging-proxy.service" },
+  { mode: 0o644, path: "infra/systemd/esmii-node-exporter-staging-proxy.socket" },
+  { mode: 0o644, path: "infra/systemd/esmii-node-exporter.service" },
+  { mode: 0o644, path: "infra/systemd/esmii-node-exporter.slice" },
+]);
+
+export async function buildMonitoringHostPayload(repositoryRoot, sourceRevision) {
+  if (!/^[0-9a-f]{40}$/u.test(sourceRevision)) {
+    throw new Error("Monitoring host payload requires one full lowercase source revision.");
+  }
+  const root = resolve(repositoryRoot);
+  const sourceEntries = [];
+  for (const specification of monitoringHostPayloadFiles) {
+    const path = join(root, specification.path);
+    const logical = normalizedPath(root, path);
+    if (logical !== specification.path)
+      throw new Error(`Monitoring payload path drift: ${logical}`);
+    const bytes = await readFile(path);
+    sourceEntries.push({ bytes, mode: specification.mode, path: logical });
+  }
+  const metadata = {
+    file_set: "prompt-07-monitoring-host",
+    schema_version: 1,
+    source: "https://github.com/malmazrou/esmii",
+    source_revision: sourceRevision,
+  };
+  const metadataBytes = Buffer.from(`${canonical(metadata)}\n`, "utf8");
+  const payloadEntries = [
+    ...sourceEntries,
+    { bytes: metadataBytes, mode: 0o644, path: "monitoring-host-payload.json" },
+  ];
+  const inventory = {
+    files: payloadEntries.map((entry) => ({
+      mode: entry.mode.toString(8).padStart(4, "0"),
+      path: entry.path,
+      sha256: `sha256:${hash(entry.bytes)}`,
+      size: entry.bytes.length,
+    })),
+    normalized: {
+      gid: 0,
+      mtime: 0,
+      order: "path-byte-order",
+      uid: 0,
+    },
+    schema_version: 1,
+  };
+  const inventoryBytes = Buffer.from(`${canonical(inventory)}\n`, "utf8");
+  const bytes = makeDeterministicTar([
+    ...payloadEntries,
+    { bytes: inventoryBytes, mode: 0o644, path: "payload-inventory.json" },
+  ]);
+  const bootstrap = sourceEntries.find(
+    (entry) => entry.path === "infra/monitoring/materialize-monitoring-payload.sh",
+  );
+  if (!bootstrap) throw new Error("Monitoring payload bootstrap is absent.");
+  const verifier = sourceEntries.find(
+    (entry) => entry.path === "infra/monitoring/monitoring_payload.py",
+  );
+  if (!verifier) throw new Error("Monitoring payload verifier is absent.");
+  return {
+    bootstrapBytes: bootstrap.bytes,
+    bootstrapDigest: `sha256:${hash(bootstrap.bytes)}`,
+    bytes,
+    digest: `sha256:${hash(bytes)}`,
+    inventory,
+    inventoryDigest: `sha256:${hash(inventoryBytes)}`,
+    metadata,
+    verifierBytes: verifier.bytes,
+    verifierDigest: `sha256:${hash(verifier.bytes)}`,
+  };
+}
+
+export async function writeMonitoringHostPayload(repositoryRoot, outputRoot, sourceRevision) {
+  const payload = await buildMonitoringHostPayload(repositoryRoot, sourceRevision);
+  await mkdir(outputRoot, { mode: 0o700, recursive: true });
+  const archivePath = join(outputRoot, "esmii-monitoring-host-payload.tar");
+  const inventoryPath = join(outputRoot, "esmii-monitoring-host-payload.inventory.json");
+  const metadataPath = join(outputRoot, "esmii-monitoring-host-payload.json");
+  const bootstrapPath = join(outputRoot, "esmii-monitoring-host-payload.bootstrap.sh");
+  const verifierPath = join(outputRoot, "esmii-monitoring-host-payload.verifier.py");
+  for (const [path, bytes, mode] of [
+    [archivePath, payload.bytes, 0o600],
+    [inventoryPath, Buffer.from(`${canonical(payload.inventory)}\n`), 0o600],
+    [metadataPath, Buffer.from(`${canonical(payload.metadata)}\n`), 0o600],
+    [bootstrapPath, payload.bootstrapBytes, 0o600],
+    [verifierPath, payload.verifierBytes, 0o600],
+  ]) {
+    const temporary = `${path}.${process.pid}.tmp`;
+    await writeFile(temporary, bytes, { flag: "wx", mode });
+    await rename(temporary, path);
+    await chmod(path, mode);
+    await rm(temporary, { force: true });
+  }
+  return { ...payload, archivePath, bootstrapPath, inventoryPath, metadataPath, verifierPath };
+}

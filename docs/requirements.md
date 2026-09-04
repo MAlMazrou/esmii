@@ -1,6 +1,6 @@
 # Requirements: generic SaaS identity core
 
-**Status:** approved documentation baseline; Prompts 02–05 are implemented, Prompt 06's public application path is active, and its separately approved production-mail gate is active. Production Google OAuth, offsite-backup/restore acceptance, external monitoring acceptance, and final hardened-production acceptance remain separate unresolved gates.
+**Status:** approved documentation baseline; Prompts 02–05 are implemented, Prompt 06's public application path and separately approved production-mail gate are active, and Prompt 07 repository implementation is authorized. Prompt 07 does not authorize VPS, secret, DNS, TLS, staging/production activation, or off-host-monitor changes. Production Google OAuth, offsite-backup/restore acceptance, external outage-monitor acceptance, and final hardened-production acceptance remain separate unresolved gates.
 **Scope:** passwordless identity, organizations, memberships, invitations, authorization, and the supporting application services.  
 **Not defined here:** the application's eventual domain-specific product.
 
@@ -44,12 +44,12 @@ Production permits open passwordless self-registration through the approved magi
 
 ### AUTH-002 — Initial login methods
 
-The approved core is passwordless:
+The customer-facing generic core is passwordless:
 
 - short-lived email magic links;
 - Google OAuth/OIDC.
 
-Google enablement is environment-configured and must not appear usable when unconfigured. Microsoft and Apple were removed from the active provider scope by direct user instruction on 30 August 2026; their dormant compatibility paths must not be configured, exposed, or treated as deployment inputs. Passwords, password-reset flows, SMS login, and security questions are not part of the core.
+Google enablement is environment-configured and must not appear usable when unconfigured. Microsoft and Apple were removed from the active provider scope by direct user instruction on 30 August 2026; their dormant compatibility paths must not be configured, exposed, or treated as deployment inputs. Customer passwords, password-reset flows, SMS login, and security questions are not part of the core. Prompt 07's dedicated infrastructure-operator realm is the only password exception: it has separate hosts, stores, cookies, secrets, authorization, and purpose under OPS-AUTH-001/002 and cannot authenticate to the customer application.
 
 ### AUTH-003 — Magic-link request
 
@@ -99,8 +99,48 @@ Google enablement is environment-configured and must not appear usable when unco
 ### AUTH-009 — Privileged access
 
 - Organization ownership transfer and organization deletion require recent authentication.
-- The core has no application-level platform-operator role, API, or dashboard. VPS/deployment operators remain out-of-band and never inherit organization permissions.
-- Any future application-level operator surface requires separate requirements for private access, MFA, audit, authorization, emergency use, and revocation before it is implemented.
+- The customer application has no application-level platform-operator role or API. VPS/deployment and monitoring operators never inherit organization permissions.
+- Prompt 07's infrastructure dashboard is a separate operator application and identity realm, not a customer-product role or tenant-admin surface. It cannot read or mutate customer application records.
+- Any broader application-level operator surface still requires separate requirements for private access, MFA, audit, authorization, emergency use, and revocation before implementation.
+
+### OPS-AUTH-001 — Separate monitoring realms
+
+- `staging-dashboard.esmii.app` and `dashboard.esmii.app` are separate Better Auth realms with separate root-only operator records, password hashes, TOTP seeds/keys, session secrets, host-only cookies, revocation state, and SQLite auth/audit databases.
+- Neither realm exposes signup, password reset, magic-link, social-login, customer-account linking, organization membership, or customer application sessions/APIs.
+- Better Auth operations are confined to `/api/operator-auth/*`; all typed monitoring data is under `/api/monitoring/*` and requires a completed password-plus-TOTP session.
+- Environment identity is fixed by server configuration. A route, request header, query, body, cookie, or browser control cannot change which environment is queried. A link to the other hostname starts that realm's independent authentication flow.
+- The login surface and process-health endpoint reveal no infrastructure metrics, service names/state, logs, Prometheus response, operator existence, or secret-bearing configuration.
+
+### OPS-AUTH-002 — Operator password, TOTP, session, and audit
+
+- Use Better Auth's supported password hashing and TOTP facilities; do not implement password hashing, TOTP, encryption, or session cryptography directly.
+- Every monitoring session requires both a valid password and current TOTP. Password-only/pre-TOTP state cannot call monitoring APIs or receive monitoring data through HTML, React Server Components, prefetch, cache, or error content.
+- Sessions last at most eight hours and use Secure, HttpOnly, host-only, `SameSite=Strict` cookies, exact-origin/CSRF checks, server-side revocation, and environment-specific names/keys.
+- Password and TOTP attempts use generic non-enumerating errors plus bounded per-network and per-operator-identifier rate limits. Protection failure fails closed without disclosing whether an operator exists.
+- Operator provisioning, credential/TOTP reset, disablement, and recovery are out-of-band root-only actions. They are audited without password, hash, seed, TOTP value, recovery material, cookie, or session token.
+- Audit successful/failed password and TOTP stages, session creation, logout, revocation, operator disablement, and credential reset with bounded safe metadata and retention. Audit access requires the same authenticated environment realm.
+
+### OPS-MON-001 — Monitoring data boundary
+
+- The dashboard server uses fixed allowlisted queries against only its own private Prometheus. The browser cannot send arbitrary PromQL, choose a Prometheus URL, increase an unbounded time/result range, or access the raw Prometheus UI/API.
+- One host node exporter may supply shared VPS metrics to both environment Prometheus instances; environment-specific service/job metrics and log snapshots remain separated at collection, storage, query, and mount boundaries.
+- No dashboard, Caddy, Prometheus, or browser process receives the Docker socket or a general shell/command interface. Root collectors are fixed, parameterless, least-privilege host jobs that emit only the reviewed schema.
+- Unauthenticated, wrong-environment, stale, revoked, password-only, and cross-host sessions fail closed before data access.
+
+### OPS-LOG-001 — Safe recent warnings and errors
+
+- Dashboard logs are a bounded recent warning/error view, not raw Docker/journal access and not a long-term log warehouse.
+- A root collector parses allowlisted services and emits only timestamp, normalized service, severity, safe event/message text, and request/correlation ID. It discards unapproved fields before writing an environment-specific atomic snapshot.
+- Never collect or display auth/action URLs, query strings, headers, cookies, IP addresses, emails, bodies, SQL values, SMTP content, OAuth/TOTP material, stack traces, environment variables, full commands, or secrets.
+- The dashboard renders messages as untrusted text. It offers no arbitrary grep, regular expression, path, command, container/unit, or PromQL input.
+- Each environment retains at most 24 hours, 10,000 records, or 20 MiB in the dashboard snapshot, whichever limit is reached first; each message is truncated to 4 KiB after redaction.
+
+### OPS-UI-001 — Environment clarity and extensibility
+
+- Every authenticated screen has persistent, non-color-only environment identification. Production and staging must never be visually ambiguous at desktop or mobile widths.
+- The overview shows shared-VPS CPU, RAM, disk, disk I/O, network, uptime, and load plus environment-scoped services, restarts/start times, job state, data freshness, and recent safe warnings/errors.
+- A separate future application-monitoring section renders honest empty states for request count, error rate, and response-time percentiles until application instrumentation is explicitly implemented. No fabricated values are shown.
+- Navigation/data contracts allow those application series to be connected later without replacing the monitoring shell, authentication boundary, or environment model.
 
 ## 5. Organization and authorization requirements
 
@@ -329,6 +369,8 @@ Keyboard operation, visible focus, correct labels, associated errors, and semant
 - Do not put provider credentials or any server-only value into browser-visible variables.
 - Use synthetic users, organizations, email addresses, and media in development/CI.
 - Permanent account/organization purge, export, audit-retention changes, and backup-expiry behavior require separate lifecycle requirements before implementation.
+- Prompt 07 monitoring operators are operational identities only. Their realm, data, cookies, password/TOTP flow, and audit state must remain unable to authorize customer or organization actions.
+- Prometheus, node_exporter, collector outputs, and dashboard data ports must never be public. Caddy exposes only authenticated dashboard HTTP routes and a detail-free process health endpoint.
 
 ## 13. Development and quality requirements
 
@@ -362,6 +404,18 @@ Prompt 03 tests must cover:
 - API success during SMTP outage followed by worker retry;
 - principal flows at browser level plus mobile/desktop accessibility checks.
 
+Prompt 07 additionally tests:
+
+- password-plus-TOTP enforcement, generic failures, rate limiting, session expiry/revocation, CSRF/origin handling, host-only cookie separation, and negative password-only/cross-host/cross-environment cases;
+- proof that operator identities cannot authenticate to or access customer application/organization APIs and customer sessions cannot authenticate to monitoring;
+- fixed environment selection and fixed allowlisted PromQL descriptors with bounded time ranges/results/timeouts and hostile response fixtures;
+- monitoring-network isolation, no public `9090`/`9100`/collector port, and no Docker socket or general command surface in dashboard/Prometheus/Caddy;
+- metric-label and log-snapshot sentinels proving prohibited personal, auth, token, URL/query, header, body, SQL, SMTP, command, stack, and secret fields are discarded before storage/display;
+- bounded seven-day/1 GB Prometheus retention inside a 1.25 GB disk allowance and bounded 24-hour/10,000-record/20 MiB log snapshots with 4 KiB per-message truncation;
+- separate staging/production Prometheus data, SQLite auth/audit state, secrets, cookies, mounts, and networks while shared host metrics remain clearly identified;
+- resource-cap policy totaling 1,088 MiB, configuration rendering, rollback fixtures, and the mandatory 24-hour staging-soak gate before production activation; and
+- authenticated desktop/mobile environment clarity plus the future application-monitoring empty state.
+
 ### DEV-004 — Environment safety
 
 Local development and CI do not connect to or mutate production/staging VPSs, DNS, OAuth applications, mail, databases, media, registries, or backup repositories. Prompt 04 creates and validates infrastructure code locally; it also performs no remote action.
@@ -382,20 +436,21 @@ The generic core is complete only when its numbered prompts supply evidence for 
 - [ ] No production credential, live data, runtime state, mail material, dump, or backup is committed.
 - [x] Prompt 04 produces locally validated, approval-ready infrastructure code without connecting to the VPS.
 - [ ] Prompts 05 and 06 remain separately gated external operations.
+- [ ] Prompt 07's repository implementation passes operator-auth, query, log-safety, isolation, image, resource, desktop/mobile, and rollback tests; every VPS, secret, Cloudflare, certificate, soak-acceptance, production-activation, and off-host-monitor action remains separately gated.
 
 ## 15. Out of scope until separately required
 
-- Password authentication, password reset, SMS login, and security questions
+- Customer password authentication, password reset, SMS login, and security questions; the isolated Prompt 07 operator password-plus-TOTP realm is the only approved exception
 - Any domain-specific business entity or workflow
 - Billing, subscriptions, invoicing, and payments
 - SAML, SCIM, enterprise directory provisioning, or authentication providers beyond Google
 - Public API keys, developer portal, or API monetization
 - End-user uploads, media library UI, video processing, and antivirus scanning
 - Physical account/organization purge and data-export workflow
-- Public platform-administration dashboards
+- General-purpose customer/platform administration dashboards beyond the narrowly scoped Prompt 07 infrastructure-monitoring operator application
 - Chat, presence, collaborative editing, and speculative realtime events
 - Marketing, newsletters, campaigns, broadcasts, bulk email, and general end-user mailbox hosting on this Netcup server
-- SeaweedFS/S3 without a separately approved need and resource budget, Kubernetes, Kong/APISIX, dedicated brokers/identity/realtime servers, and heavyweight observability
+- SeaweedFS/S3 without a separately approved need and resource budget, Kubernetes, Kong/APISIX, dedicated brokers/identity/realtime servers, Grafana/Loki/ELK/self-hosted Sentry, tracing clusters, and observability beyond the bounded Prompt 07 Prometheus/node_exporter/root-collector profile
 - Any VPS, DNS, provider, registry, backup, or production action before its numbered prompt and explicit approval
 
 An out-of-scope item requires its own behavior, acceptance criteria, resource impact, and user authorization before implementation.

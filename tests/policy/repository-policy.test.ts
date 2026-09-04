@@ -34,12 +34,15 @@ describe("repository policy", () => {
     expect(contents).toContain("github.event_name == 'push' && github.ref == 'refs/heads/dev'");
     expect(contents).toContain("ghcr.io/malmazrou/esmii-web:sha-${{ github.sha }}");
     expect(contents).toContain("ghcr.io/malmazrou/esmii-server:sha-${{ github.sha }}");
+    expect(contents).toContain("ghcr.io/malmazrou/esmii-dashboard:sha-${{ github.sha }}");
     expect(contents).toContain("ghcr.io/malmazrou/esmii-web:dev");
     expect(contents).toContain("ghcr.io/malmazrou/esmii-server:dev");
+    expect(contents).toContain("ghcr.io/malmazrou/esmii-dashboard:dev");
     expect(contents).toContain("github.event_name == 'workflow_dispatch'");
     expect(contents).toContain("github.ref == 'refs/heads/main'");
     expect(contents).toContain("ghcr.io/malmazrou/esmii-web:main");
     expect(contents).toContain("ghcr.io/malmazrou/esmii-server:main");
+    expect(contents).toContain("ghcr.io/malmazrou/esmii-dashboard:main");
     expect(contents).toContain("docker buildx imagetools create");
     expect(contents).not.toContain(":latest");
   });
@@ -63,7 +66,11 @@ describe("repository policy", () => {
   });
 
   it("keeps environment identity out of Docker build arguments while allowing the public release version", async () => {
-    const dockerfiles = ["apps/web/Dockerfile", "apps/server/Dockerfile"];
+    const dockerfiles = [
+      "apps/web/Dockerfile",
+      "apps/server/Dockerfile",
+      "apps/dashboard/Dockerfile",
+    ];
     for (const dockerfile of dockerfiles) {
       const contents = await readFile(dockerfile, "utf8");
       expect(contents).not.toMatch(/^ARG\s+(?:ENVIRONMENT|STAGING|PRODUCTION)(?:\s|=|$)/mu);
@@ -71,13 +78,30 @@ describe("repository policy", () => {
         ([, name]) => name,
       );
       expect(publicArguments).toEqual(
-        dockerfile === "apps/web/Dockerfile" ? ["NEXT_PUBLIC_APP_VERSION"] : [],
+        dockerfile === "apps/server/Dockerfile" ? [] : ["NEXT_PUBLIC_APP_VERSION"],
       );
       expect(contents).not.toContain("esmii.app");
       expect(contents).toContain("org.opencontainers.image.source");
       expect(contents).toContain("org.opencontainers.image.revision");
       expect(contents).toContain("org.opencontainers.image.version");
       expect(contents).toContain("development-uncommitted");
+    }
+  });
+
+  it("keeps secret sentinels forbidden while allowing both fixed dashboard realm hostnames", async () => {
+    const contents = await readFile("scripts/images.mjs", "utf8");
+    expect(contents).toContain('image.kind === "dashboard"');
+    expect(contents).toContain('value !== "esmii.app"');
+    expect(contents).toContain('value !== "staging.esmii.app"');
+    expect(contents).toContain('"https://esmii.app"');
+    expect(contents).toContain('"https://staging.esmii.app"');
+    for (const secretSentinel of [
+      "OAUTH_CLIENT_ID_SENTINEL",
+      "COOKIE_SECRET_SENTINEL",
+      "MAIL_HOST_SENTINEL",
+      "SERVER_SECRET_SENTINEL",
+    ]) {
+      expect(contents).toContain(secretSentinel);
     }
   });
 

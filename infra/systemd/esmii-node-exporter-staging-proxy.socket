@@ -1,0 +1,11 @@
+[Unit]
+Description=Private staging socket for the shared Esmii node_exporter
+
+[Socket]
+ListenStream=172.30.40.9:9100
+FreeBind=true
+NoDelay=true
+Service=esmii-node-exporter-staging-proxy.service
+
+[Install]
+WantedBy=sockets.target

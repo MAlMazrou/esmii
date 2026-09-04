@@ -1,0 +1,36 @@
+[Unit]
+Description=Esmii private host metrics exporter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=true
+Slice=esmii-node-exporter.slice
+ExecStart=/usr/local/bin/node_exporter \
+  --web.listen-address=127.0.0.1:9100 \
+  --web.telemetry-path=/metrics \
+  --collector.textfile.directory=/var/lib/esmii/monitoring/shared/textfiles
+Restart=on-failure
+RestartSec=15s
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+ReadOnlyPaths=/var/lib/esmii/monitoring/shared/textfiles
+RestrictAddressFamilies=AF_INET AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target
