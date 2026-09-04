@@ -84,8 +84,11 @@ declare -a TEMPORARIES=()
 cleanup() {
   local temporary
   for temporary in "${TEMPORARIES[@]}"; do
-    [[ -n ${temporary} ]] && rm -f -- "${temporary}"
+    if [[ -n ${temporary} ]]; then
+      rm -f -- "${temporary}"
+    fi
   done
+  return 0
 }
 trap cleanup EXIT
 

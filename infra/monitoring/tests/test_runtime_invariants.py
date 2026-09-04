@@ -285,6 +285,15 @@ class RuntimeInvariantTests(unittest.TestCase):
         self.assertLess(installer.index("if [[ ${action} == install-shared ]]"), installer.index("install -o root -g root -m 0644"))
         self.assertNotRegex(installer, r"ufw allow[^\n]*(?:from any|to any)[^\n]*9100")
 
+    def test_pull_wrapper_cleanup_cannot_turn_success_into_failure(self):
+        installer = read("infra/monitoring/install-pull-wrapper-integration.sh")
+        cleanup = installer[
+            installer.index("cleanup() {") : installer.index("trap cleanup EXIT")
+        ]
+        self.assertIn("if [[ -n ${temporary} ]]; then", cleanup)
+        self.assertIn("return 0", cleanup)
+        self.assertNotIn("[[ -n ${temporary} ]] &&", cleanup)
+
     def test_host_rollback_is_environment_scoped_and_shared_removal_is_guarded(self):
         installer = read("infra/monitoring/install-host-collectors.sh")
         rollback = read("infra/monitoring/rollback-host-collectors.sh")
