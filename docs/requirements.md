@@ -105,20 +105,21 @@ Google enablement is environment-configured and must not appear usable when unco
 
 ### OPS-AUTH-001 — Separate monitoring realms
 
-- `staging-dashboard.esmii.app` and `dashboard.esmii.app` are separate Better Auth realms with separate root-only operator records, password hashes, TOTP seeds/keys, session secrets, host-only cookies, revocation state, and SQLite auth/audit databases.
+- `staging-dashboard.esmii.app` and `dashboard.esmii.app` are separate Better Auth realms with separate root-only operator records, password hashes, email-OTP sender credentials, session secrets, host-only cookies, revocation state, and SQLite auth/audit databases.
 - Neither realm exposes signup, password reset, magic-link, social-login, customer-account linking, organization membership, or customer application sessions/APIs.
-- Better Auth operations are confined to `/api/operator-auth/*`; all typed monitoring data is under `/api/monitoring/*` and requires a completed password-plus-TOTP session.
+- Better Auth operations are confined to `/api/operator-auth/*`; all typed monitoring data is under `/api/monitoring/*` and requires a completed password-plus-email-OTP session.
 - Environment identity is fixed by server configuration. A route, request header, query, body, cookie, or browser control cannot change which environment is queried. A link to the other hostname starts that realm's independent authentication flow.
 - The login surface and process-health endpoint reveal no infrastructure metrics, service names/state, logs, Prometheus response, operator existence, or secret-bearing configuration.
 
-### OPS-AUTH-002 — Operator password, TOTP, session, and audit
+### OPS-AUTH-002 — Operator password, email OTP, session, and audit
 
-- Use Better Auth's supported password hashing and TOTP facilities; do not implement password hashing, TOTP, encryption, or session cryptography directly.
-- Every monitoring session requires both a valid password and current TOTP. Password-only/pre-TOTP state cannot call monitoring APIs or receive monitoring data through HTML, React Server Components, prefetch, cache, or error content.
+- Use Better Auth's supported password hashing and email-OTP facilities; use the existing self-hosted Stalwart submission path for delivery and do not implement password hashing, OTP generation/storage, encryption, or session cryptography directly.
+- Every monitoring session requires both a valid password and a single-use six-digit email OTP delivered to the authenticated operator email. Password-only/pre-OTP state cannot call monitoring APIs or receive monitoring data through HTML, React Server Components, prefetch, cache, or error content.
 - Sessions last at most eight hours and use Secure, HttpOnly, host-only, `SameSite=Strict` cookies, exact-origin/CSRF checks, server-side revocation, and environment-specific names/keys.
-- Password and TOTP attempts use generic non-enumerating errors plus bounded per-network and per-operator-identifier rate limits. Protection failure fails closed without disclosing whether an operator exists.
-- Operator provisioning, credential/TOTP reset, disablement, and recovery are out-of-band root-only actions. They are audited without password, hash, seed, TOTP value, recovery material, cookie, or session token.
-- Audit successful/failed password and TOTP stages, session creation, logout, revocation, operator disablement, and credential reset with bounded safe metadata and retention. Audit access requires the same authenticated environment realm.
+- OTP delivery uses one dedicated, environment-specific, dashboard-only Stalwart identity and root-only SMTP credential. A dashboard joins only its matching internal `mail-submit` network, validates STARTTLS for `mail.esmii.app`, and cannot choose or accept a recipient other than the email on the password-authenticated session.
+- Password, OTP-send, and OTP-verification attempts use generic non-enumerating errors plus bounded per-network and per-operator-identifier rate limits. Protection or mail-delivery failure fails closed without disclosing whether an operator exists.
+- Operator provisioning, email retargeting, credential reset, disablement, and recovery are out-of-band root-only actions. They are audited without password, hash, SMTP credential, OTP value, recovery material, cookie, or session token.
+- Audit successful/failed password and email-OTP stages, session creation, logout, revocation, operator disablement, retargeting, and credential reset with bounded safe metadata and retention. Audit access requires the same authenticated environment realm.
 
 ### OPS-MON-001 — Monitoring data boundary
 
@@ -369,7 +370,7 @@ Keyboard operation, visible focus, correct labels, associated errors, and semant
 - Do not put provider credentials or any server-only value into browser-visible variables.
 - Use synthetic users, organizations, email addresses, and media in development/CI.
 - Permanent account/organization purge, export, audit-retention changes, and backup-expiry behavior require separate lifecycle requirements before implementation.
-- Prompt 07 monitoring operators are operational identities only. Their realm, data, cookies, password/TOTP flow, and audit state must remain unable to authorize customer or organization actions.
+- Prompt 07 monitoring operators are operational identities only. Their realm, data, cookies, password/email-OTP flow, and audit state must remain unable to authorize customer or organization actions.
 - Prometheus, node_exporter, collector outputs, and dashboard data ports must never be public. Caddy exposes only authenticated dashboard HTTP routes and a detail-free process health endpoint.
 
 ## 13. Development and quality requirements
@@ -406,7 +407,7 @@ Prompt 03 tests must cover:
 
 Prompt 07 additionally tests:
 
-- password-plus-TOTP enforcement, generic failures, rate limiting, session expiry/revocation, CSRF/origin handling, host-only cookie separation, and negative password-only/cross-host/cross-environment cases;
+- password-plus-email-OTP enforcement, generic failures, rate limiting, one-time expiry/consumption, fixed-recipient delivery, session expiry/revocation, CSRF/origin handling, host-only cookie separation, and negative password-only/cross-host/cross-environment cases;
 - proof that operator identities cannot authenticate to or access customer application/organization APIs and customer sessions cannot authenticate to monitoring;
 - fixed environment selection and fixed allowlisted PromQL descriptors with bounded time ranges/results/timeouts and hostile response fixtures;
 - monitoring-network isolation, no public `9090`/`9100`/collector port, and no Docker socket or general command surface in dashboard/Prometheus/Caddy;
@@ -440,7 +441,7 @@ The generic core is complete only when its numbered prompts supply evidence for 
 
 ## 15. Out of scope until separately required
 
-- Customer password authentication, password reset, SMS login, and security questions; the isolated Prompt 07 operator password-plus-TOTP realm is the only approved exception
+- Customer password authentication, password reset, SMS login, and security questions; the isolated Prompt 07 operator password-plus-email-OTP realm is the only approved exception
 - Any domain-specific business entity or workflow
 - Billing, subscriptions, invoicing, and payments
 - SAML, SCIM, enterprise directory provisioning, or authentication providers beyond Google

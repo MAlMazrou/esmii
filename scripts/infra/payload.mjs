@@ -205,6 +205,7 @@ export const monitoringHostPayloadFiles = Object.freeze([
   { mode: 0o644, path: "infra/monitoring/prometheus/production/prometheus.yml" },
   { mode: 0o644, path: "infra/monitoring/prometheus/rules/esmii.rules.yml" },
   { mode: 0o644, path: "infra/monitoring/prometheus/staging/prometheus.yml" },
+  { mode: 0o755, path: "infra/monitoring/provision_dashboard_mail.py" },
   { mode: 0o755, path: "infra/monitoring/render_monitoring.py" },
   { mode: 0o755, path: "infra/monitoring/rollback-host-collectors.sh" },
   { mode: 0o755, path: "infra/monitoring/rollback_monitoring_runtime.py" },

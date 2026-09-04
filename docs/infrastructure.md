@@ -173,7 +173,7 @@ The version numbers below are a dated implementation baseline, not permission to
 | Realtime | Socket.IO | current supported 4.x patch | Runs in Fastify now; Valkey adapter can be added before API replica 2 |
 | HTTP edge | Caddy | 2.11.4 baseline | Automatic TLS, HTTP reverse proxy, WebSocket proxy, headers, compression, and logs |
 | Monitoring UI | Custom `@esmii/dashboard` Next.js application | same pinned Node/Next baseline | Branded operator interface with server-side Prometheus adapters; no Grafana or raw metrics UI |
-| Monitoring auth | Separate Better Auth password + TOTP realms | same pinned Better Auth baseline | Isolated host-only operator sessions/SQLite audit state with no customer account or organization authority |
+| Monitoring auth | Separate Better Auth password + email-OTP realms | same pinned Better Auth baseline | Isolated host-only operator sessions/SQLite audit state with dedicated environment Stalwart senders and no customer account or organization authority |
 | Metrics | Prometheus ×2 + host node_exporter ×1 | exact tested/pinned releases | Environment-local time series plus shared VPS metrics; seven-day/1 GB retention within a 1.25 GB disk allowance per environment and no public listeners |
 | Host collection | Fixed root metrics/log collectors | repository-owned Python/systemd | Supplies allowlisted Docker/systemd facts and bounded sanitized warning/error snapshots without a Docker socket in the dashboard |
 | Mail | Stalwart | 0.16.19 | Low-volume transactional/account mail plus named operational mailboxes only; staging uses a separate sender/credential for allowlisted testers, development uses Mailpit, and Netcup bulk/marketing mail is excluded |
@@ -421,7 +421,7 @@ The root package.json must be private, pin the packageManager field, and provide
 | packages/email | Renderable templates and typed email inputs | worker; preview tooling in development |
 | packages/storage | Storage interface plus filesystem/S3 implementations | API, worker, and tests |
 | packages/testing | Factories, fixtures, and integration helpers | tests only |
-| apps/dashboard | Operator auth/TOTP, fixed monitoring queries, safe log snapshots, custom UI | dashboard image only; never imported into customer web/server |
+| apps/dashboard | Operator password/email-OTP auth, fixed monitoring queries, safe log snapshots, custom UI | dashboard image only; never imported into customer web/server |
 | infra | Compose, proxy, datastore, mail bootstrap, and operations | deployment tooling |
 
 Keep contracts browser-safe. They must not import database clients, Node-only modules, or secrets. Database, SMTP, filesystem, and privileged configuration packages must never enter the frontend bundle.
@@ -533,10 +533,10 @@ Use Compose layering rather than maintaining unrelated files:
 - `infra/monitoring/render_monitoring.py` renders one environment at a time but creates no activation marker; `infra/monitoring/manage-monitoring-runtime.sh` is the fixed private-start/edge/stop entrypoint, and `infra/monitoring/install-monitoring-runtime.sh`, `infra/monitoring/install-pull-wrapper-integration.sh`, and `infra/monitoring/rollback_monitoring_runtime.py` are the bounded render/integration/rollback entrypoints; all live Compose mutations use project `esmii`, the shared `/run/lock/esmii/host-pull.lock`, fixed paths/services, and no caller-provided Compose target;
 - the same immutable dashboard image is used in both environments with runtime-fixed hostname, environment, private Prometheus URL, cookie, SQLite, secret, and snapshot paths;
 - staging uses monitoring edge/data `172.30.40.0/29` and `172.30.40.8/29`; production uses `172.30.41.0/29` and `172.30.41.8/29`;
-- Caddy attaches only to each monitoring edge, the dashboard bridges only its own edge/data, and Prometheus attaches only to its own internal data network;
+- Caddy attaches only to each monitoring edge, the dashboard bridges only its own edge/data plus matching internal `mail-submit` network, and Prometheus attaches only to its own internal data network;
 - Prometheus `9090`, dashboard `3000`, node_exporter `9100`, SQLite, metrics, and log snapshots are never published as host ports or routed raw through Caddy;
 - dashboard instances are non-root/read-only except their environment-specific root-owned SQLite/cache mounts; Prometheus has only its own persistent TSDB volume; and
-- no service mounts `/var/run/docker.sock`, another environment's path, a customer database secret, application media/mail state, or a general host filesystem.
+- no service mounts `/var/run/docker.sock`, another environment's path, a customer database secret, mutable application media/mail state, or a general host filesystem; the dashboard's only mail-related mount is its matching read-only TLS CA certificate.
 
 All overlays require Docker Compose 2.33.1 or later for `gw_priority` and the `!override` merge tag. Set `gw_priority: 1` on each API edge and on `production-mail-egress` for Stalwart; internal networks remain priority 0. Render tests prove base+development publishes only loopback ports and references no remote `/srv/myapp` paths, base+staging publishes the remote Caddy ports once, and base+staging+production preserves that single list while adding only production's edge/mount. See Docker's [`gw_priority` contract](https://docs.docker.com/reference/compose-file/services/#gw_priority) and [Compose merge tags](https://docs.docker.com/reference/compose-file/merge/).
 
@@ -739,9 +739,9 @@ Do not create separate repositories or services merely because modules have diff
 | production PostgreSQL | none | production-data | production PostgreSQL volume | 768 MB |
 | production Valkey | none | production-data | disposable cache state | 256 MB |
 | production Stalwart | SMTP only after Prompt 06 mail gate | production mail networks | config and operational mail data | 512 MB |
-| staging dashboard | none directly; Caddy hostname only after gate | staging monitoring edge/data | staging-only SQLite auth/audit and bounded cache | 192 MB |
+| staging dashboard | none directly; Caddy hostname only after gate | staging monitoring edge/data + staging mail-submit | staging-only SQLite auth/audit and bounded cache | 192 MB |
 | staging Prometheus | none | staging monitoring-data | staging TSDB, 7 days/1 GB max within a 1.25 GB disk allowance | 256 MB |
-| production dashboard | none directly; Caddy hostname only after gate | production monitoring edge/data | production-only SQLite auth/audit and bounded cache | 192 MB |
+| production dashboard | none directly; Caddy hostname only after gate | production monitoring edge/data + production mail-submit | production-only SQLite auth/audit and bounded cache | 192 MB |
 | production Prometheus | none | production monitoring-data | production TSDB, 7 days/1 GB max within a 1.25 GB disk allowance | 256 MB |
 | host node_exporter | private bridge gateway listeners only | host to both monitoring-data networks | no durable state; environment textfile roots are separate | 64 MB |
 | root metrics/log collectors | no listener | host-only fixed commands and outputs | atomic environment-specific textfiles/snapshots | 64 MB each transient `MemoryMax` |
@@ -754,7 +754,7 @@ The existing application/mail limits total 4,000 MiB and Prompt 07 adds exactly 
 - **environment edge:** production uses `production-edge`; staging uses `staging-edge`. Each contains Caddy plus only that environment's web and API. Caddy is the sole container joining both; production and staging application containers never share an edge network. Only Caddy publishes HTTP ports.
 - **data:** API, worker, PostgreSQL, and Valkey. PostgreSQL and Valkey never publish host ports.
 - **storage:** API, worker, and the optional object store. With local storage, it is primarily a conceptual trust boundary plus explicit volume mounts.
-- **mail-submit:** worker and Stalwart. Only the worker receives SMTP credentials; the Stalwart alias matches `<MAIL_HOSTNAME>` for TLS/SNI.
+- **mail-submit:** each environment's worker, monitoring dashboard, and Stalwart. The worker and dashboard receive different task-specific SMTP credentials; each dashboard credential is a dedicated monitoring sender used only for email OTP. The Stalwart alias matches `<MAIL_HOSTNAME>` for TLS/SNI.
 - **mail-events:** Stalwart and API for signed delivery feedback; never Caddy.
 - **mail-admin:** Stalwart plus explicitly invoked administration tooling; never Caddy and never public.
 - **mail-egress:** Stalwart-only outbound internet access for SMTP, DNS, ACME, and reviewed updates.
@@ -763,7 +763,7 @@ The existing application/mail limits total 4,000 MiB and Prompt 07 adds exactly 
 - **monitoring data:** internal `staging-monitoring-data` (`172.30.40.8/29`, host/node target `172.30.40.9`) and `production-monitoring-data` (`172.30.41.8/29`, host/node target `172.30.41.9`) contain only their dashboard/Prometheus pair and the scoped host node_exporter listener. Per-Prometheus relabeling discards the other environment's collector series.
 - **mailbox-public/storage-edge:** absent at launch; optional overlays expose only their intended data listeners to Caddy.
 
-Caddy must not join data, storage-internal, monitoring-data, mail-events, mail-admin, or mail-submit networks and must never mount the Docker socket. The web and dashboard containers must never receive database, Valkey, SMTP, object-admin, backup, migration, or Docker credentials; the dashboard receives only its environment operator/Prometheus/snapshot configuration. The worker has no public listener. A service attached to multiple networks **and requiring internet egress** must declare its intended non-internal default gateway with `gw_priority`; verify the resulting route from the running container rather than relying on network-name or attachment order. Production and staging workers are deliberately attached only to their own internal data/storage/mail-submit networks, have no non-internal gateway, and must fail direct external DNS/HTTP/SMTP reachability; each submits only to Stalwart with its own credential.
+Caddy must not join data, storage-internal, monitoring-data, mail-events, mail-admin, or mail-submit networks and must never mount the Docker socket. The web containers must never receive database, Valkey, SMTP, object-admin, backup, migration, or Docker credentials. Each dashboard receives only its environment operator/Prometheus/snapshot configuration plus its dedicated email-OTP SMTP credential and matching CA file; it never receives a worker/customer SMTP credential or another environment's mail network. The worker has no public listener. A service attached to multiple networks **and requiring internet egress** must declare its intended non-internal default gateway with `gw_priority`; verify the resulting route from the running container rather than relying on network-name or attachment order. Production and staging workers and dashboards use only their own internal `mail-submit` network, have no direct internet gateway, and submit only to Stalwart with separate task-specific credentials.
 
 ### Persistent paths
 
@@ -1517,7 +1517,7 @@ Prompt 07 adds two separate site fragments after their respective external gates
 }
 ~~~
 
-Each fragment sends all auth/UI/typed monitoring API traffic to only its environment dashboard. Caddy performs no operator authentication itself and therefore cannot accidentally create a bypass path; the dashboard enforces password plus TOTP before every monitoring HTML/RSC/API response. `/healthz` is the sole detail-free unauthenticated process endpoint. Auth URLs, every query-bearing request, cookies, authorization headers, TOTP values, and operator identifiers are excluded/redacted from access logs. Caddy joins only the matching monitoring-edge network and never monitoring-data.
+Each fragment sends all auth/UI/typed monitoring API traffic to only its environment dashboard. Caddy performs no operator authentication itself and therefore cannot accidentally create a bypass path; the dashboard enforces password plus a session-bound email OTP before every monitoring HTML/RSC/API response. `/healthz` is the sole detail-free unauthenticated process endpoint. Auth URLs, every query-bearing request, cookies, authorization headers, OTP/TOTP values, and operator identifiers are excluded/redacted from access logs. Caddy joins only the matching monitoring-edge network and never monitoring-data.
 
 Each dashboard hostname remains absent from the active Caddy configuration until its external gate. At activation, use Caddy's reviewed Let's Encrypt ACME issuer, redirect HTTP to HTTPS, verify the issued certificate chain/hostname/renewal schedule, and retain the preceding Worker/DNS route for rollback. A certificate failure must not be bypassed with an untrusted certificate, raw port, or public Prometheus/exporter route.
 
@@ -2156,9 +2156,9 @@ Public launch is a further approval and a new signed activation manifest satisfy
 1. Finish repository/local validation first. A built dashboard image or passing CI authorizes no host/provider action.
 2. Under a fresh read-only-audit approval, verify live Cloudflare bindings/records, VPS resources/listeners/routes/packages/timers, Docker networks, current restart history, certificate state, and absence of conflicting monitoring software.
 3. Under a staging host-change approval, install the fixed root node_exporter/collector units, root-only directories/secrets, `staging-prometheus`, `staging-dashboard`, private networks, and Caddy fragment while leaving public DNS unchanged. Validate through VPN/loopback.
-4. Record the existing `staging-dashboard.esmii.app` Worker custom-domain state. Under its Cloudflare gate, detach only that binding, create DNS-only VPS A/AAAA records, and verify Caddy's Let's Encrypt issuance/automatic renewal and HTTPS redirect, password+TOTP-before-data, log redaction, no public metric ports, and an exact Worker rollback.
+4. Record the existing `staging-dashboard.esmii.app` Worker custom-domain state. Under its Cloudflare gate, detach only that binding, create DNS-only VPS A/AAAA records, and verify Caddy's Let's Encrypt issuance/automatic renewal and HTTPS redirect, password+email-OTP-before-data, log redaction, no public metric ports, and an exact Worker rollback.
 5. Run a continuous 24-hour staging soak under representative combined application/mail load. Production is blocked by sustained RAM above 70%, any sustained normal-load swap, OOM, repeated restart, threshold breach, isolation/auth failure, or unacceptable application latency.
-6. After explicit soak acceptance and a separate production host/secret approval, instantiate the same verified dashboard digest as `production-dashboard` with its own Prometheus, networks, SQLite, operator credential/TOTP/session secrets, Caddy fragment, retention, and rollback point.
+6. After explicit soak acceptance and a separate production host/secret approval, instantiate the same verified dashboard digest as `production-dashboard` with its own Prometheus, networks, SQLite, operator password/dedicated SMTP/session secrets, Caddy fragment, retention, and rollback point.
 7. After a fresh audit proves `dashboard.esmii.app` unoccupied, separately approve DNS-only A/AAAA creation and verify Caddy's Let's Encrypt issuance/automatic renewal, HTTPS redirect, auth, isolation, and no-public-metrics exposure.
 8. Keep the off-host outage-monitor/alert route separate: same-VPS Prometheus cannot observe complete host, provider, network, power, or authoritative-DNS loss.
 
@@ -2185,7 +2185,7 @@ The following should always be true:
 13. Staging and production share only the explicitly named host-level control plane (physical host, Docker daemon/project, root-owned release tooling/reconciler) and Caddy; they share no application/data network, state path, volume, credential, cookie, OAuth application, mail identity, or backup repository.
 14. Stalwart feedback is accepted only on the internal network after HMAC verification and unique event-ID insertion.
 15. The host accepts deployments only through the root-owned outbound reconciler and sealed wrappers; GitHub-hosted runners receive no inbound SSH or Docker access.
-16. Each monitoring hostname has its own Better Auth password-plus-TOTP operator realm, SQLite/audit state, host-only cookie, and private Prometheus; it has no customer account/organization authority.
+16. Each monitoring hostname has its own Better Auth password-plus-email-OTP operator realm, dedicated Stalwart sender, SQLite/audit state, host-only cookie, and private Prometheus; it has no customer account/organization authority.
 17. Raw Prometheus, node_exporter, collectors, SQLite state, and log snapshots are never public. The dashboard cannot accept arbitrary PromQL/commands or access Docker.
 
 ### Host and container hardening
@@ -2412,11 +2412,11 @@ The user approved repository implementation of the following exact profile. Live
 
 The dashboard server uses fixed, allowlisted query descriptors against only its private environment Prometheus. It reports host CPU/RAM/disk/I/O/network/uptime/load, allowlisted service and job status/restart facts, and sanitized warning/error snapshots. Application response-time/error-rate/request-count cards are a typed empty state until an application metrics contract is separately approved; they are not fabricated from logs.
 
-Each dashboard has a separate Better Auth SQLite operator realm: password plus mandatory TOTP, an eight-hour database-backed session, a host-only environment-prefixed cookie, and no signup, reset, social, magic-link, recovery-by-email, or customer-account bridge. Provision, recover, revoke, and reset operations use root-only local CLI flows with secret input from protected files or a TTY, never command-line arguments. The only public unauthenticated dashboard endpoint is `GET /healthz`; `/api/operator-auth/*`, authenticated pages, and every `/api/monitoring/*` route are rate-limited as appropriate and all monitoring data requires completed TOTP. This operator exception does not add password auth or a generic administrator role to the customer application.
+Each dashboard has a separate Better Auth SQLite operator realm: password plus a mandatory five-minute, single-use, six-digit email OTP, an eight-hour database-backed session, a host-only environment-prefixed cookie, and no signup, reset, social, magic-link, recovery-by-email, or customer-account bridge. OTPs are hashed at rest by Better Auth, delivered only to the password-authenticated session's fixed operator email, and completion is recorded only for that session. Each dashboard has a distinct dedicated Stalwart sender and root-only SMTP URL, validates STARTTLS for `mail.esmii.app`, and joins only its environment's internal `mail-submit` network. Provision, retarget, recover, revoke, and reset operations use root-only local CLI flows with secret input from protected files or a TTY, never command-line arguments. The only public unauthenticated dashboard endpoint is `GET /healthz`; `/api/operator-auth/*`, authenticated pages, and every `/api/monitoring/*` route are rate-limited as appropriate and all monitoring data requires completed email OTP. This operator exception does not add password auth or a generic administrator role to the customer application.
 
 The root log collector reads only allowlisted source units/containers, selects warning/error records, strips ANSI/control characters, redacts configured secret/auth/query/cookie/header/email/token patterns before writing, truncates every message to 4 KiB, and atomically replaces one root-owned snapshot per environment. Each snapshot retains no more than 24 hours, 10,000 events, or 20 MiB, whichever limit is reached first. The dashboard receives read-only snapshot access and never receives journal, Docker, or shell authority. Source Docker logs retain their existing 10 MiB × 3 rotation; a snapshot is a bounded diagnostic view, not an archive.
 
-Raw ports `3000`, `9090`, and `9100` remain unpublished. Caddy joins only each environment's monitoring-edge network, each dashboard bridges only its own edge/data networks, and each Prometheus joins only its internal monitoring-data network. Same-VPS monitoring still cannot report complete host, provider, network, power, or authoritative-DNS loss, so a separately approved off-host outage monitor remains required for production acceptance.
+Raw ports `3000`, `9090`, and `9100` remain unpublished. Caddy joins only each environment's monitoring-edge network, each dashboard bridges only its own edge/data networks plus its matching internal `mail-submit` network, and each Prometheus joins only its internal monitoring-data network. Same-VPS monitoring still cannot report complete host, provider, network, power, or authoritative-DNS loss, so a separately approved off-host outage monitor remains required for production acceptance.
 
 ## 20. CI/CD and rollback
 
@@ -2450,7 +2450,7 @@ If the Git repository is on GitHub, use GitHub Actions and GHCR. GitHub document
 10. Outbox dispatch, pg-boss runtime-permission, retry, and idempotency tests with runtime migrations disabled.
 11. SMTP test against a non-delivering test server plus signed/replayed/duplicate Stalwart feedback fixtures.
 12. Always test the storage adapter contract, mount permissions, and Caddy denial of private/non-variant paths. Add media upload, Sharp limit, public/private delivery, deletion, and reconciliation tests only after an approved media feature exists.
-13. Start the standalone customer and dashboard Next.js images read-only and prove SSR, restart, and navigation work without ISR or image-cache writes. Prove dashboard pages and APIs fail closed without the environment's completed password-plus-TOTP session.
+13. Start the standalone customer and dashboard Next.js images read-only and prove SSR, restart, and navigation work without ISR or image-cache writes. Prove dashboard pages and APIs fail closed without the environment's completed password-plus-email-OTP session.
 
 ### Staging and production pipeline
 
@@ -2759,9 +2759,9 @@ The first production release is ready only when all applicable checks pass. It m
 - [ ] request limits, rate limits, and idempotency tested
 - [ ] logs contain IDs but no secrets/tokens/cookies
 - [ ] sentinel magic-link/OAuth/query/cookie/authorization values are absent from both Caddy and application logs
-- [ ] staging and production monitoring use separate Better Auth SQLite realms, password/TOTP credentials, session secrets, audit state, and host-only environment-prefixed cookies; no dashboard operator maps to a customer identity or organization role
-- [ ] every dashboard page and `/api/monitoring/*` route denies anonymous, password-only, wrong-environment, expired, revoked, and non-TOTP-complete sessions; only `GET /healthz` is public
-- [ ] operator login is rate-limited and audited without recording password, TOTP seed/code, session token, cookie, authorization value, or recovery material
+- [ ] staging and production monitoring use separate Better Auth SQLite realms, password/dedicated-SMTP credentials, session secrets, audit state, and host-only environment-prefixed cookies; no dashboard operator maps to a customer identity or organization role
+- [ ] every dashboard page and `/api/monitoring/*` route denies anonymous, password-only, wrong-environment, expired, revoked, and non-email-OTP-complete sessions; only `GET /healthz` is public
+- [ ] operator password, OTP-send, and OTP-verification stages are rate-limited and audited without recording password, SMTP credential, OTP/TOTP code, session token, cookie, authorization value, or recovery material
 
 ### Media and storage boundary
 
@@ -2832,7 +2832,7 @@ The first production release is ready only when all applicable checks pass. It m
 - **Repository boundary:** source and deployment recipes in Git; production secrets and live state under /etc/myapp and /srv/myapp.
 - **Orchestration:** Docker Engine + Compose, not Kubernetes or Podman for this one-host phase.
 - **Backend:** Node 24 LTS, TypeScript, Fastify, Drizzle, modular monolith.
-- **Auth:** customer Better Auth in Fastify uses PostgreSQL sessions, passwordless magic links, Google OAuth, and `owner`/`editor`/`member` authorization with no password or generic app-admin role. The isolated monitoring app uses separate Better Auth SQLite operator realms with password plus mandatory TOTP and no customer bridge.
+- **Auth:** customer Better Auth in Fastify uses PostgreSQL sessions, passwordless magic links, Google OAuth, and `owner`/`editor`/`member` authorization with no password or generic app-admin role. The isolated monitoring app uses separate Better Auth SQLite operator realms with password plus mandatory email OTP through dedicated environment Stalwart senders and no customer bridge.
 - **Gateway:** Caddy at the edge; no Kong/APISIX.
 - **Database:** PostgreSQL.
 - **Cache:** Valkey with separate API, worker, and health ACL identities; disposable state only.

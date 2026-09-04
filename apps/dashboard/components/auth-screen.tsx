@@ -6,7 +6,7 @@ import type { MonitoringEnvironment } from "../lib/monitoring/types.ts";
 import { Brand } from "./brand.tsx";
 import { DatabaseIcon, LockIcon, ServerIcon } from "./icons.tsx";
 
-type AuthStep = "credentials" | "password-change" | "totp";
+type AuthStep = "credentials" | "email-otp" | "password-change";
 
 async function responseMessage(response: Response): Promise<string> {
   const payload = (await response.json().catch(() => null)) as {
@@ -25,6 +25,7 @@ export function AuthScreen({ environment }: Readonly<{ environment: MonitoringEn
   const [nextPassword, setNextPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const codeRef = useRef<HTMLInputElement>(null);
 
@@ -39,7 +40,14 @@ export function AuthScreen({ environment }: Readonly<{ environment: MonitoringEn
         method: "POST",
       });
       if (!response.ok) throw new Error(await responseMessage(response));
-      setStep("totp");
+      setStep("email-otp");
+      const otpResponse = await fetch("/api/operator-auth/email-otp/send-verification-otp", {
+        body: "{}",
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+      if (!otpResponse.ok) throw new Error(await responseMessage(otpResponse));
+      setStatusMessage(`A sign-in code was sent to ${email}.`);
       requestAnimationFrame(() => codeRef.current?.focus());
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Authentication failed");
@@ -48,13 +56,13 @@ export function AuthScreen({ environment }: Readonly<{ environment: MonitoringEn
     }
   }
 
-  async function submitTotp(event: FormEvent<HTMLFormElement>): Promise<void> {
+  async function submitEmailOtp(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch("/api/operator-auth/two-factor/verify-totp", {
-        body: JSON.stringify({ code, trustDevice: false }),
+      const response = await fetch("/api/operator-auth/email-otp/verify-email", {
+        body: JSON.stringify({ code }),
         headers: { "content-type": "application/json" },
         method: "POST",
       });
@@ -68,6 +76,44 @@ export function AuthScreen({ environment }: Readonly<{ environment: MonitoringEn
       setError(caught instanceof Error ? caught.message : "Authentication failed");
       setCode("");
     } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resendEmailOtp(): Promise<void> {
+    setBusy(true);
+    setError(null);
+    setStatusMessage(null);
+    try {
+      const response = await fetch("/api/operator-auth/email-otp/send-verification-otp", {
+        body: "{}",
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+      if (!response.ok) throw new Error(await responseMessage(response));
+      setCode("");
+      setStatusMessage(`A new sign-in code was sent to ${email}.`);
+      requestAnimationFrame(() => codeRef.current?.focus());
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to send a new code");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function returnToCredentials(): Promise<void> {
+    setBusy(true);
+    try {
+      await fetch("/api/operator-auth/sign-out", {
+        body: "{}",
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+    } finally {
+      setStep("credentials");
+      setCode("");
+      setError(null);
+      setStatusMessage(null);
       setBusy(false);
     }
   }
@@ -105,10 +151,10 @@ export function AuthScreen({ environment }: Readonly<{ environment: MonitoringEn
           title: "Operator sign in",
           subtitle: "Use the credentials provisioned for this environment.",
         }
-      : step === "totp"
+      : step === "email-otp"
         ? {
             title: "Verify it’s you",
-            subtitle: "Enter the six-digit code from your authenticator app.",
+            subtitle: "Enter the six-digit code sent to your operator email.",
           }
         : {
             title: "Replace temporary password",
@@ -158,10 +204,10 @@ export function AuthScreen({ environment }: Readonly<{ environment: MonitoringEn
                 {busy ? "Checking…" : "Continue"}
               </button>
             </form>
-          ) : step === "totp" ? (
-            <form className="auth-form" onSubmit={(event) => void submitTotp(event)}>
+          ) : step === "email-otp" ? (
+            <form className="auth-form" onSubmit={(event) => void submitEmailOtp(event)}>
               <label className="form-label">
-                Authenticator code
+                Email code
                 <input
                   ref={codeRef}
                   aria-describedby="code-help"
@@ -177,8 +223,13 @@ export function AuthScreen({ environment }: Readonly<{ environment: MonitoringEn
                 />
               </label>
               <span className="sr-only" id="code-help">
-                Six numeric digits
+                Six numeric digits sent by email
               </span>
+              {statusMessage === null ? null : (
+                <p className="auth-copy" role="status">
+                  {statusMessage}
+                </p>
+              )}
               {error === null ? null : (
                 <p className="form-error" role="alert">
                   {error}
@@ -189,14 +240,19 @@ export function AuthScreen({ environment }: Readonly<{ environment: MonitoringEn
               </button>
               <button
                 className="button secondary"
-                onClick={() => {
-                  setStep("credentials");
-                  setError(null);
-                  setCode("");
-                }}
+                disabled={busy}
+                onClick={() => void resendEmailOtp()}
                 type="button"
               >
-                Back
+                Send a new code
+              </button>
+              <button
+                className="button secondary"
+                disabled={busy}
+                onClick={() => void returnToCredentials()}
+                type="button"
+              >
+                Back to sign in
               </button>
             </form>
           ) : (
@@ -255,7 +311,7 @@ export function AuthScreen({ environment }: Readonly<{ environment: MonitoringEn
             <div className="auth-node primary">
               <LockIcon />
               <div>
-                <strong>Password + TOTP</strong>
+                <strong>Password + email OTP</strong>
                 <span>Environment-isolated operator access</span>
               </div>
             </div>

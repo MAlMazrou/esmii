@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { expect, test, type Page } from "@playwright/test";
@@ -13,12 +13,12 @@ type MonitoringEnvironment = "staging" | "production";
 interface FixtureMetadata {
   readonly databaseFile: string;
   readonly email: string;
+  readonly emailOtpCodeFile: string;
   readonly environment: MonitoringEnvironment;
   readonly origin: string;
   readonly password: string;
   readonly peerOrigin: string;
   readonly themeFixture: "contract-test" | null;
-  readonly totpCodeFile: string;
 }
 
 const runtimeRoot = resolve(process.cwd(), "test-results/dashboard-e2e-runtime");
@@ -76,6 +76,7 @@ async function signIn(page: Page, fixture: FixtureMetadata): Promise<void> {
 
   await page.getByLabel("Email").fill(fixture.email);
   await page.getByLabel("Password").fill(fixture.password);
+  rmSync(fixture.emailOtpCodeFile, { force: true });
   await page.getByRole("button", { name: "Continue" }).click();
 
   await expect(page.getByRole("heading", { name: "Verify it’s you" })).toBeVisible();
@@ -90,12 +91,21 @@ async function signIn(page: Page, fixture: FixtureMetadata): Promise<void> {
   expect(new URL(passwordOnlyPage.headers().location ?? "/", fixture.origin).pathname).toBe(
     "/login",
   );
-  const codeInput = page.getByLabel("Authenticator code");
+  await expect(page.getByRole("status")).toContainText(fixture.email);
+  const codeInput = page.getByLabel("Email code");
   await expect(codeInput).toBeFocused();
   await codeInput.fill("12345");
   await expect(page.getByRole("button", { name: "Verify and continue" })).toBeDisabled();
-  await page.waitForTimeout(600);
-  await codeInput.fill(readFileSync(fixture.totpCodeFile, "utf8").trim());
+  await expect
+    .poll(() => {
+      try {
+        return readFileSync(fixture.emailOtpCodeFile, "utf8").trim();
+      } catch {
+        return "";
+      }
+    })
+    .toMatch(/^\d{6}$/u);
+  await codeInput.fill(readFileSync(fixture.emailOtpCodeFile, "utf8").trim());
   await page.getByRole("button", { name: "Verify and continue" }).click();
   await page.waitForURL(`${fixture.origin}/overview`);
   await expect(page.getByRole("heading", { name: "System overview" })).toBeVisible();
