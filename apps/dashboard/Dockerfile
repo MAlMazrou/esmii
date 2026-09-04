@@ -39,6 +39,11 @@ RUN export NEXT_PUBLIC_APP_VERSION="${NEXT_PUBLIC_APP_VERSION:-${ESMII_APP_VERSI
     && export MONITORING_FIXTURE_MODE=true \
     && corepack pnpm --filter @esmii/dashboard build
 
+# The standalone Next.js trace contains only dependencies needed by the web
+# server. Bundle the separate root-initiated operator CLI into one portable
+# module so build tooling and optional peer dependencies never enter runtime.
+RUN corepack pnpm --filter @esmii/dashboard build:operator-cli
+
 FROM node:24.20.0-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e AS runtime
 
 ARG ESMII_IMAGE_SOURCE=local://esmii/working-tree
@@ -62,9 +67,8 @@ RUN npm uninstall --global npm \
 
 COPY --from=build --chown=10003:10003 /workspace/apps/dashboard/.next/standalone ./
 COPY --from=build --chown=10003:10003 /workspace/apps/dashboard/.next/static ./apps/dashboard/.next/static
-COPY --from=build --chown=10003:10003 /workspace/apps/dashboard/scripts ./apps/dashboard/scripts
-COPY --from=build --chown=10003:10003 /workspace/apps/dashboard/lib/auth ./apps/dashboard/lib/auth
 COPY --from=build --chown=10003:10003 /workspace/apps/dashboard/lib/config ./apps/dashboard/lib/config
+COPY --from=build --chown=10003:10003 /workspace/apps/dashboard/dist/operator-auth.mjs ./apps/dashboard/operator-auth.mjs
 
 USER 10003:10003
 

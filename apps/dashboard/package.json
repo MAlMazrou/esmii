@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "next build",
+    "build:operator-cli": "esbuild scripts/operator-auth.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/operator-auth.mjs --log-level=warning",
     "dev": "next dev --hostname 127.0.0.1 --port 3010",
     "start": "next start --hostname 0.0.0.0 --port 3000",
     "lint": "eslint . --max-warnings 0",
@@ -27,6 +28,7 @@
   "devDependencies": {
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.5",
+    "esbuild": "0.28.2",
     "typescript": "6.0.3",
     "vitest": "4.1.11"
   }

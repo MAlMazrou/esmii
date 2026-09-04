@@ -157,6 +157,42 @@ function waitForFixture(name, probeArguments) {
   throw new Error(`Runtime fixture ${name} did not become ready.`);
 }
 
+function verifyDashboardOperatorCli(name) {
+  const secret = spawnLocalDocker(
+    docker,
+    [
+      "exec",
+      name,
+      "node",
+      "-e",
+      "require('node:fs').writeFileSync('/tmp/dashboard-auth-secret','INERT_DASHBOARD_AUTH_SECRET_0000000000000001',{mode:0o600})",
+    ],
+    { stdio: "inherit" },
+  );
+  if (secret.status !== 0) {
+    throw new Error("Could not prepare the disposable dashboard operator CLI fixture.");
+  }
+
+  const migration = spawnLocalDocker(
+    docker,
+    [
+      "exec",
+      "--env",
+      "DASHBOARD_AUTH_DATABASE_FILE=/tmp/operator-auth.sqlite",
+      "--env",
+      "DASHBOARD_AUTH_SECRET_FILE=/tmp/dashboard-auth-secret",
+      name,
+      "node",
+      "/app/apps/dashboard/operator-auth.mjs",
+      "migrate",
+    ],
+    { stdio: "inherit" },
+  );
+  if (migration.status !== 0) {
+    throw new Error("The production dashboard image cannot run its operator migration CLI.");
+  }
+}
+
 function runRuntimeFixture({ environmentName, image, kind, port }) {
   const suffix = randomBytes(4).toString("hex");
   const name = `esmii-${kind}-${environmentName}-${suffix}`;
@@ -276,6 +312,7 @@ function runRuntimeFixture({ environmentName, image, kind, port }) {
               `fetch('http://127.0.0.1:${port}/').then(async (response) => { const body = await response.text(); if (!response.ok || !body.includes('Opening Esmii') || !body.includes('${appVersion}')) process.exit(1); }).catch(() => process.exit(1));`,
             ];
     waitForFixture(name, probe);
+    if (kind === "dashboard") verifyDashboardOperatorCli(name);
     fixtureImageId = expectedImageId;
   } catch (error) {
     fixtureError = error;
@@ -460,7 +497,7 @@ if (process.argv[2] === "build") {
         "sh",
         image.tag,
         "-c",
-        image.kind === "server"
+        image.kind === "server" || image.kind === "dashboard"
           ? "test ! -e /usr/local/lib/node_modules/npm && test -z \"$(find /app/node_modules -type f -path '*/node_modules/*esbuild*/bin/esbuild' -print -quit)\""
           : "test ! -e /usr/local/lib/node_modules/npm",
       ],
