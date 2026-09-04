@@ -140,7 +140,7 @@ sudo "${ESMII_MONITORING_PAYLOAD_ROOT}"/infra/monitoring/install-monitoring-runt
   --environment <ENVIRONMENT> \
   --dashboard-image <DASHBOARD_IMAGE_DIGEST> \
   --prometheus-image <PROMETHEUS_IMAGE_DIGEST> \
-  --source https://github.com/malmazrou/esmii \
+  --source https://github.com/MAlMazrou/esmii \
   --revision <FULL_GIT_SHA> \
   --version <APP_VERSION>
 ```

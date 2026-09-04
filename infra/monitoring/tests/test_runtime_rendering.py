@@ -35,6 +35,18 @@ HOST_PAYLOAD_DIGEST = "sha256:" + "d" * 64
 
 
 class RuntimeRenderingTests(unittest.TestCase):
+    def test_dashboard_source_matches_existing_release_provenance(self):
+        for relative in (
+            "infra/staging-pull/staging-pull.conf",
+            "infra/production-pull/production-pull.conf",
+        ):
+            values = dict(
+                line.split("=", 1)
+                for line in (REPOSITORY_ROOT / relative).read_text(encoding="utf-8").splitlines()
+                if line and not line.startswith("#")
+            )
+            self.assertEqual(SOURCE, values["ESMII_IMAGE_SOURCE"])
+
     def test_staging_render_is_digest_only_deterministic_and_environment_local(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
